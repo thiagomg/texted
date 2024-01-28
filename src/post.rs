@@ -1,0 +1,135 @@
+use fmt::Display;
+use std::fmt::Formatter;
+use std::{fmt, fs, io};
+use std::path::PathBuf;
+use lazy_static::lazy_static;
+use regex::Regex;
+
+pub struct Post {
+    pub id: String,
+    pub date: String, // TODO: convert to date time
+    pub author: String,
+    pub title: String,
+    pub content: String,
+}
+
+impl Display for Post {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        write!(f, "id={}, date={}, author={}\ntitle={}\ncontent:\n{}",
+            self.id,
+            self.date,
+            self.author,
+            self.title,
+            self.content
+        )
+    }
+}
+
+/// Example of post
+/// [ID]: # (a63bd715-a3fe-4788-b0e1-2a3153778544)
+/// [DATE]: # (2022-04-02 12:05:00.000)
+/// [AUTHOR]: # (thiago)
+///
+/// # What I learned after 20+ years of software development
+impl Post {
+    pub fn from(file_name: &PathBuf, header_only: bool) -> io::Result<Post> {
+        let lines = fs::read_to_string(file_name)?;
+
+        Ok(Self::from_string(&lines, header_only))
+    }
+
+    pub fn from_string(content: &String, header_only: bool) -> Post {
+        let mut lines = content.lines();
+
+        let mut id: String = "".to_string();
+        let mut date: String = "".to_string();
+        let mut author: String = "".to_string();
+        let mut title: String = "".to_string();
+        let mut content: String;
+
+        while let Some(line) = lines.next() {
+            let (key, val) = match Self::extract_header(line) {
+                None => break,
+                Some((k, v)) => (k, v),
+            };
+
+            match key {
+                "ID" => id = val.to_string(),
+                "DATE" => date = val.to_string(),
+                "AUTHOR" => author = val.to_string(),
+                _ => {}
+            }
+        }
+
+        // After the header, comes the title
+        while let Some(line) = lines.next() {
+            if line.starts_with("# ") {
+                title = line[2 .. line.len()].to_string();
+                break;
+            }
+        }
+
+        if header_only {
+            content = "".to_string();
+        } else {
+            content = String::new();
+            while let Some(line) = lines.next() {
+                content.push_str(line);
+                content.push('\n');
+            }
+        }
+
+        Post {
+            id,
+            date,
+            author,
+            title,
+            content,
+        }
+    }
+
+    fn extract_header(line: &str) -> Option<(&str,&str)> {
+        lazy_static! {
+            static ref HEADER_REGEX : Regex = Regex::new(
+                r"\[(?P<key>\w+)\]: # \((?P<value>.+)\)"
+            ).unwrap();
+        }
+
+        let res = HEADER_REGEX.captures(line).and_then(|cap| {
+            let key = cap.name("key").map(|key| key.as_str());
+            let val = cap.name("value").map(|key| key.as_str());
+            match (key, val) {
+                (Some(key), Some(val)) => Some((key, val)),
+                _ => None
+            }
+        });
+
+        res
+    }
+}
+
+
+#[cfg(test)]
+mod tests {
+    use crate::test_data::POST_DATA;
+    use super::*;
+
+    #[test]
+    fn test_extract_header() {
+        let res = Post::extract_header("[ID]: # (a63bd715-a3fe-4788-b0e1-2a3153778544)");
+        assert_eq!(res, Some(("ID", "a63bd715-a3fe-4788-b0e1-2a3153778544")));
+        let res = Post::extract_header("[DATE]: # (2022-04-02 12:05:00.000)");
+        assert_eq!(res, Some(("DATE", "2022-04-02 12:05:00.000")));
+        let res = Post::extract_header("[AUTHOR]: # (thiago)");
+        assert_eq!(res, Some(("AUTHOR", "thiago")));
+
+        let res = Post::extract_header("[AUTHOR]: (thiago)");
+        assert!(res.is_none());
+    }
+
+    #[test]
+    fn test_from_string() {
+        let post = Post::from_string(&POST_DATA.to_string(), true);
+        println!("{}", post);
+    }
+}
