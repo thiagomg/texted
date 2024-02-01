@@ -6,6 +6,7 @@ use lazy_static::lazy_static;
 use regex::Regex;
 
 pub struct Header {
+    pub file_name: PathBuf,
     pub id: String,
     pub date: String, // TODO: convert to date time
     pub author: String,
@@ -39,10 +40,10 @@ impl Post {
     pub fn from(file_name: &PathBuf, header_only: bool) -> io::Result<Post> {
         let lines = fs::read_to_string(file_name)?;
 
-        Ok(Self::from_string(&lines, header_only))
+        Ok(Self::from_string(file_name, &lines, header_only))
     }
 
-    pub fn from_string(content: &String, header_only: bool) -> Post {
+    pub fn from_string(file_name: &PathBuf, content: &String, header_only: bool) -> Post {
         let mut lines = content.lines();
 
         let mut id: String = "".to_string();
@@ -99,6 +100,7 @@ impl Post {
 
         Post {
             header: Header {
+                file_name: file_name.clone(),
                 id,
                 date,
                 author,
