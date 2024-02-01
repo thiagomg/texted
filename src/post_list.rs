@@ -52,12 +52,12 @@ mod tests {
     #[test]
     fn test_happy_case() -> io::Result<()> {
         let root_dir = PathBuf::from("/home/thiago/src/texted2/posts");
-        let post_file = "post.md".to_string();
+        let post_file = "index.md".to_string();
         let post_list = PostList { root_dir, post_file };
 
         let dirs = post_list.retrieve_dirs()?;
         for dir in dirs.as_slice() {
-            let p = dir.join("post.md");
+            let p = dir.join("index.md");
             let post = Post::from(&p, true)?;
             println!("{}\n{}\n=-=-=-=-=-=-=-=-=-=-", p.to_str().unwrap(), post);
         }

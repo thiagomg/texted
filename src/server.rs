@@ -12,14 +12,14 @@ use crate::post_list::PostList;
 async fn list() -> Result<String, web::Error> {
     let mut page_buf = String::new();
     let root_dir = PathBuf::from("/home/thiago/src/texted2/posts");
-    let post_file = "post.md".to_string();
+    let post_file = "index.md".to_string();
     let post_list = PostList { root_dir, post_file };
 
     let dirs = post_list.retrieve_dirs()?;
     for dir in dirs.as_slice() {
         let p = dir.join(&post_list.post_file);
         let post = Post::from(&p, true)?;
-        page_buf.push_str(format!("{}\n{}\n=-=-=-=-=-=-=-=-=-=-\n", p.to_str().unwrap(), post).as_str());
+        page_buf.push_str(format!("{}\n{}=-=-=-=-=-=-=-=-=-=-\n", p.to_str().unwrap(), post).as_str());
     }
 
     Ok(page_buf)

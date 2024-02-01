@@ -5,10 +5,14 @@ use std::path::PathBuf;
 use lazy_static::lazy_static;
 use regex::Regex;
 
-pub struct Post {
+pub struct Header {
     pub id: String,
     pub date: String, // TODO: convert to date time
     pub author: String,
+}
+
+pub struct Post {
+    pub header: Header,
     pub title: String,
     pub content: String,
 }
@@ -16,9 +20,9 @@ pub struct Post {
 impl Display for Post {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         write!(f, "id={}, date={}, author={}\ntitle={}\ncontent:\n{}",
-            self.id,
-            self.date,
-            self.author,
+            self.header.id,
+            self.header.date,
+            self.header.author,
             self.title,
             self.content
         )
@@ -47,30 +51,44 @@ impl Post {
         let mut title: String = "".to_string();
         let mut content: String;
 
-        while let Some(line) = lines.next() {
-            let (key, val) = match Self::extract_header(line) {
-                None => break,
-                Some((k, v)) => (k, v),
-            };
+        let mut maybe_line = lines.next();
+        loop {
+            if let Some(line) = maybe_line {
+                let (key, val) = match Self::extract_header(line) {
+                    None => break,
+                    Some((k, v)) => (k, v),
+                };
 
-            match key {
-                "ID" => id = val.to_string(),
-                "DATE" => date = val.to_string(),
-                "AUTHOR" => author = val.to_string(),
-                _ => {}
+                match key {
+                    "ID" => id = val.to_string(),
+                    "DATE" => date = val.to_string(),
+                    "AUTHOR" => author = val.to_string(),
+                    _ => {}
+                }
             }
+            maybe_line = lines.next();
         }
 
         // After the header, comes the title
-        while let Some(line) = lines.next() {
-            if line.starts_with("# ") {
-                title = line[2 .. line.len()].to_string();
-                break;
+        loop {
+            if let Some(line) = maybe_line {
+                if line.starts_with("# ") {
+                    title = line[2..line.len()].to_string();
+                    break;
+                }
             }
+            maybe_line = lines.next();
         }
 
         if header_only {
-            content = "".to_string();
+            content = String::new();
+            while let Some(line) = lines.next() {
+                if line.contains("<!-- more -->") {
+                    break;
+                }
+                content.push_str(line);
+                content.push('\n');
+            }
         } else {
             content = String::new();
             while let Some(line) = lines.next() {
@@ -80,9 +98,11 @@ impl Post {
         }
 
         Post {
-            id,
-            date,
-            author,
+            header: Header {
+                id,
+                date,
+                author,
+            },
             title,
             content,
         }
