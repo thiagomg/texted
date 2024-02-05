@@ -151,7 +151,8 @@ mod tests {
 
     #[test]
     fn test_from_string() {
-        let post = Post::from_string(&POST_DATA.to_string(), true);
+        let file_name = PathBuf::from("/home/thiago/src/texted2/posts/20200522_how_to_write_a_code_review/index.md");
+        let post = Post::from_string(&file_name, &POST_DATA.to_string(), true);
         println!("{}", post);
     }
 }

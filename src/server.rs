@@ -1,12 +1,13 @@
 
 use std::{io, str::FromStr};
 use std::path::PathBuf;
+use std::sync::{Arc, Mutex};
 
 use ntex::web;
-use ntex::web::Error;
 use ntex_files::NamedFile;
 use ramhorns::{Content, Template};
 use crate::post::Post;
+use crate::post_cache::PostCache;
 use crate::post_list::PostList;
 
 // TODO: Iterate through dirs and create an index based on the UUID
@@ -28,12 +29,13 @@ struct ListPage {
 struct PostItem {
     date: String,
     time: String,
-    file_name: String,
+    link: String,
     title: String,
     summary: String,
 }
 
 fn get_posts() -> io::Result<Vec<Post>> {
+    // TODO: Move it to post_list
     // TODO: Posts location should be configurable
     let root_dir = PathBuf::from("/home/thiago/src/texted2/posts");
     let post_file = "index.md".to_string();
@@ -47,11 +49,13 @@ fn get_posts() -> io::Result<Vec<Post>> {
         posts.push(post);
     }
 
+    // TODO: Render markdown? Maybe in another location
+
     Ok(posts)
 }
 
 #[web::get("/list")]
-async fn list() -> web::HttpResponse {
+async fn list(mut state: web::types::State<Arc<Mutex<AppState>>>) -> web::HttpResponse {
 
     // TODO: Make templates location and names configurable
     let list_tpl_src: String = match read_template("postlist.tpl") {
@@ -62,7 +66,7 @@ async fn list() -> web::HttpResponse {
         }
     };
 
-    // TODO: Cache?
+    // TODO: Cache renderer?
     let list_tpl = match Template::new(list_tpl_src) {
         Ok(x) => x,
         Err(e) => {
@@ -71,6 +75,7 @@ async fn list() -> web::HttpResponse {
         }
     };
 
+    // TODO: Retrieve from cache first
     let md_posts = match get_posts() {
         Ok(posts) => posts,
         Err(err) => {
@@ -79,23 +84,40 @@ async fn list() -> web::HttpResponse {
         }
     };
 
+    // TODO: If update cache
+    {
+        let mut cache = &mut state.lock().unwrap().posts;
+        for post in md_posts {
+            if let Err(e) = cache.add(post) {
+                return web::HttpResponse::InternalServerError()
+                    .body(format!("Error caching posts: {}", e));
+            }
+        }
+    }
+
+    // TODO: Implement multiple readers, single writer
     let mut post_list = vec![];
-    for post in md_posts {
-        // TODO: Implement From trait
-        let post1 = PostItem {
-            date: post.header.date,
-            time: "TO_PARSE".to_string(), // TODO: Parse date time
-            file_name: post.header.file_name.to_str().unwrap().to_string(),
-            title: post.title,
-            summary: format!("<pre>{}</ptr>", post.content), // TODO: Render markdown
-        };
-        post_list.push(post1);
+    {
+        let cache = &state.lock().unwrap().posts;
+
+        for (link, uuid) in cache.link_to_uuid.iter() {
+            // TODO: Implement From trait. Do we need to clone?
+            let post = cache.posts.get(uuid).unwrap();
+
+            let post_item = PostItem {
+                date: post.header.date.clone(),
+                time: "TO_PARSE".to_string(), // TODO: Parse date time
+                link: "view/".to_string() + link,
+                title: post.title.clone(),
+                summary: post.content.clone(),
+            };
+            post_list.push(post_item);
+        }
     }
 
     let rendered = list_tpl.render(&ListPage {
         post_list
     });
-
 
     web::HttpResponse::Ok()
         .content_type("text/html; charset=utf-8")
@@ -170,15 +192,16 @@ fn read_template(file_name: &str) -> Result<String, io::Error> {
     std::fs::read_to_string(full_path)
 }
 
-#[derive(Clone)]
 struct AppState {
     app_name: String,
+    posts: PostCache,
 }
 
 pub async fn server_run() -> std::io::Result<()> {
-    let app_state = AppState {
+    let app_state = Arc::new(Mutex::new(AppState {
         app_name: "Thiago Cafe".to_string(),
-    };
+        posts: PostCache::new(),
+    }));
 
     web::HttpServer::new(move || {
         web::App::new()
