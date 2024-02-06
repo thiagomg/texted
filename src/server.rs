@@ -10,8 +10,12 @@ use crate::post::Post;
 use crate::post_cache::PostCache;
 use crate::post_list::PostList;
 
-// TODO: Iterate through dirs and create an index based on the UUID
-// TODO: Use cached index to list and open
+// TODO: MISSING
+// 1. Caching rendered pages - final html and no comments?
+// 2. Render markdown
+// 3. Fill stats in the main page
+// 4. Parse date/time from the header
+// 5. Change templates to "tell me your opinion" using twitter 
 
 #[derive(Content)]
 struct IndexPage {
