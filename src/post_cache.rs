@@ -43,6 +43,17 @@ impl PostCache {
         Ok(())
     }
 
+    pub fn from_uuid(&self, uuid: &str) -> Option<&Post> {
+        self.posts.get(uuid)
+    }
+
+    pub fn from_link(&self, link: &str) -> Option<&Post> {
+        match self.link_to_uuid.get(link) {
+            Some(uuid) => self.from_uuid(uuid),
+            None => None,
+        }
+    }
+
 }
 
 #[cfg(test)]

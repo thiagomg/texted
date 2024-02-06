@@ -54,6 +54,7 @@ fn get_posts() -> io::Result<Vec<Post>> {
     Ok(posts)
 }
 
+// TODO: un-mut this when caching at the start
 #[web::get("/list")]
 async fn list(mut state: web::types::State<Arc<Mutex<AppState>>>) -> web::HttpResponse {
 
@@ -74,26 +75,6 @@ async fn list(mut state: web::types::State<Arc<Mutex<AppState>>>) -> web::HttpRe
                 .body(format!("Error parsing postlist template: {}", e))
         }
     };
-
-    // TODO: Retrieve from cache first
-    let md_posts = match get_posts() {
-        Ok(posts) => posts,
-        Err(err) => {
-            return web::HttpResponse::InternalServerError()
-                .body(format!("Error retrieving post list template: {}", err))
-        }
-    };
-
-    // TODO: If update cache
-    {
-        let mut cache = &mut state.lock().unwrap().posts;
-        for post in md_posts {
-            if let Err(e) = cache.add(post) {
-                return web::HttpResponse::InternalServerError()
-                    .body(format!("Error caching posts: {}", e));
-            }
-        }
-    }
 
     // TODO: Implement multiple readers, single writer
     let mut post_list = vec![];
@@ -124,10 +105,67 @@ async fn list(mut state: web::types::State<Arc<Mutex<AppState>>>) -> web::HttpRe
         .body(rendered)
 }
 
+#[derive(Content)]
+struct ViewItem {
+    errors: Vec<String>,
+    id: String,
+    author: String,
+    date: String,
+    time: String,
+    post_content: String,
+}
+
 #[web::get("/view/{post}")]
-async fn view(path: web::types::Path<String>) -> Result<String, web::Error> {
-    let post_name = path.into_inner();
-    Ok(format!("Received {:?}", post_name))
+async fn view(path: web::types::Path<String>, 
+    state: web::types::State<Arc<Mutex<AppState>>>
+) -> web::HttpResponse {
+
+    let view_tpl_src: String = match read_template("view.tpl") {
+        Ok(s) => s,
+        Err(e) => {
+            return web::HttpResponse::InternalServerError()
+                .body(format!("Error loading post view template: {}", e))
+        }
+    };
+
+    // TODO: Cache renderer?
+    let view_tpl = match Template::new(view_tpl_src) {
+        Ok(x) => x,
+        Err(e) => {
+            return web::HttpResponse::InternalServerError()
+                .body(format!("Error parsing post view template: {}", e))
+        }
+    };
+
+    let posts : &PostCache = &state.lock().unwrap().posts;
+    let path = path.into_inner();
+    let post_summary = match posts.from_link(&path) {
+        Some(post) => post,
+        None => return web::HttpResponse::InternalServerError()
+            .body(format!("Error loading post with link: {}", &path)),
+    };
+
+    let post = match Post::from(&post_summary.header.file_name, false) {
+        Ok(post) => post,
+        Err(e) => {
+            return web::HttpResponse::InternalServerError()
+                .body(format!("Error loading post content: {}", e))
+        }
+    };
+
+    // TODO: Ref instead of clone
+    let rendered = view_tpl.render(&ViewItem { 
+        errors: vec![], 
+        id: post.header.id.clone(), 
+        author: post.header.author.clone(), 
+        date: post.header.date.clone(), 
+        time: "to-fill".to_string(), 
+        post_content: post.content.clone() 
+    });
+
+    web::HttpResponse::Ok()
+        .content_type("text/html; charset=utf-8")
+        .body(&rendered)
 }
 
 #[web::get("/public/{file_name}")]
@@ -202,6 +240,22 @@ pub async fn server_run() -> std::io::Result<()> {
         app_name: "Thiago Cafe".to_string(),
         posts: PostCache::new(),
     }));
+
+        // TODO: Retrieve from cache first
+    let md_posts = match get_posts() {
+        Ok(posts) => posts,
+        Err(err) => {
+            return Err(io::Error::new(io::ErrorKind::InvalidData, format!("Error retrieving post list template: {}", err)));
+        }
+    };
+
+    // TODO: If update cache
+    {
+        let cache = &mut app_state.lock().unwrap().posts;
+        for post in md_posts {
+            cache.add(post)?;
+        }
+    }
 
     web::HttpServer::new(move || {
         web::App::new()
