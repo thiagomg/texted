@@ -9,10 +9,12 @@ use ramhorns::{Content, Template};
 use crate::post::Post;
 use crate::post_cache::PostCache;
 use crate::post_list::PostList;
+use crate::render_post::render_post;
 
 // TODO: MISSING
 // 1. Caching rendered pages - final html and no comments?
-// 2. Render markdown
+// 2. When markdown tries to access an image, we need to retrieve the image
+//    E.g. http://127.0.0.1:8001/view/game_of_life.gif
 // 3. Fill stats in the main page
 // 4. Parse date/time from the header
 // 5. Change templates to "tell me your opinion" using twitter 
@@ -53,8 +55,6 @@ fn get_posts() -> io::Result<Vec<Post>> {
         posts.push(post);
     }
 
-    // TODO: Render markdown? Maybe in another location
-
     Ok(posts)
 }
 
@@ -88,13 +88,18 @@ async fn list(mut state: web::types::State<Arc<Mutex<AppState>>>) -> web::HttpRe
         for (link, uuid) in cache.link_to_uuid.iter() {
             // TODO: Implement From trait. Do we need to clone?
             let post = cache.posts.get(uuid).unwrap();
+            let html = match render_post(post.content.as_str()) {
+                Ok(html) => html,
+                Err(e) => return web::HttpResponse::InternalServerError()
+                    .body(format!("Error rendering post: {}", e)),
+            };
 
             let post_item = PostItem {
                 date: post.header.date.clone(),
                 time: "TO_PARSE".to_string(), // TODO: Parse date time
                 link: "view/".to_string() + link,
                 title: post.title.clone(),
-                summary: post.content.clone(),
+                summary: html,
             };
             post_list.push(post_item);
         }
@@ -157,6 +162,14 @@ async fn view(path: web::types::Path<String>,
         }
     };
 
+    let html = match render_post(&post.content) {
+        Ok(post) => post,
+        Err(e) => {
+            return web::HttpResponse::InternalServerError()
+                .body(format!("Error rendering post content: {}", e))
+        }
+    };
+
     // TODO: Ref instead of clone
     let rendered = view_tpl.render(&ViewItem { 
         errors: vec![], 
@@ -164,7 +177,8 @@ async fn view(path: web::types::Path<String>,
         author: post.header.author.clone(), 
         date: post.header.date.clone(), 
         time: "to-fill".to_string(), 
-        post_content: post.content.clone() 
+        post_content: html
+
     });
 
     web::HttpResponse::Ok()

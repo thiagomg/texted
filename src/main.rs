@@ -17,6 +17,7 @@ mod post_list;
 mod post;
 mod test_data;
 mod post_cache;
+mod render_post;
 
 #[ntex::main]
 async fn main() -> std::io::Result<()> {
