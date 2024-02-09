@@ -14,7 +14,7 @@ use crate::render_post::render_post;
 // TODO: MISSING
 // 1. Caching rendered pages - final html and no comments?
 // 2. When markdown tries to access an image, we need to retrieve the image
-//    E.g. http://127.0.0.1:8001/view/game_of_life.gif
+//    E.g. http://127.0.0.1:8001/view/20170910_Having_fun_in_life/game_of_life.gif
 // 3. Fill stats in the main page
 // 4. Parse date/time from the header
 // 5. Change templates to "tell me your opinion" using twitter 
@@ -124,11 +124,29 @@ struct ViewItem {
     post_content: String,
 }
 
+#[web::get("/view/{post}/{post_static_file}")]
+async fn view_post_file(post: String, post_static_file: String) -> web::HttpResponse {
+    web::HttpResponse::Ok()
+    .content_type("text/html; charset=utf-8")
+    .body(format!("Image: {} {}", post, post_static_file))
+
+}
+
 #[web::get("/view/{post}")]
+async fn view_wo_slash(path: web::types::Path<String>, 
+    state: web::types::State<Arc<Mutex<AppState>>>) -> web::HttpResponse {
+    view_post(path, state)
+}
+
+#[web::get("/view/{post}/")]
 async fn view(path: web::types::Path<String>, 
     state: web::types::State<Arc<Mutex<AppState>>>
 ) -> web::HttpResponse {
+    view_post(path, state)
+}
 
+fn view_post(path: web::types::Path<String>, 
+    state: web::types::State<Arc<Mutex<AppState>>>) -> web::HttpResponse {
     let view_tpl_src: String = match read_template("view.tpl") {
         Ok(s) => s,
         Err(e) => {
@@ -282,6 +300,8 @@ pub async fn server_run() -> std::io::Result<()> {
             .service(public_files)
             .service(list)
             .service(view)
+            .service(view_wo_slash)
+            .service(view_post_file)
     })
     .bind(("0.0.0.0", 8001))?
     .run()
