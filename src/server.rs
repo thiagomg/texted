@@ -9,14 +9,12 @@ use ramhorns::{Content, Template};
 use crate::post::Post;
 use crate::post_cache::PostCache;
 use crate::post_list::PostList;
-use crate::render_post::render_post;
+use crate::post_render::render_post;
+use crate::text_utils::parse_date_time;
 
 // TODO: MISSING
 // 1. Caching rendered pages - final html and no comments?
 // 3. Fill stats in the main page
-// 4. Parse date/time from the header
-// 5. Change templates to "tell me your opinion" using twitter
-// 6. In the summary, when parsing markdown, add post prefix to images
 
 #[derive(Content)]
 struct IndexPage {
@@ -42,7 +40,7 @@ struct PostItem {
 fn get_posts() -> io::Result<Vec<Post>> {
     // TODO: Move it to post_list
     // TODO: Posts location should be configurable
-    let root_dir = PathBuf::from("/home/thiago/src/texted2/posts");
+    let root_dir = PathBuf::from("/Users/thiago/src/texted2/posts");
     let post_file = "index.md".to_string();
     let post_list = PostList { root_dir, post_file };
 
@@ -57,9 +55,8 @@ fn get_posts() -> io::Result<Vec<Post>> {
     Ok(posts)
 }
 
-// TODO: un-mut this when caching at the start
 #[web::get("/list")]
-async fn list(mut state: web::types::State<Arc<Mutex<AppState>>>) -> web::HttpResponse {
+async fn list(state: web::types::State<Arc<Mutex<AppState>>>) -> web::HttpResponse {
 
     // TODO: Make templates location and names configurable
     let list_tpl_src: String = match read_template("postlist.tpl") {
@@ -70,7 +67,6 @@ async fn list(mut state: web::types::State<Arc<Mutex<AppState>>>) -> web::HttpRe
         }
     };
 
-    // TODO: Cache renderer?
     let list_tpl = match Template::new(list_tpl_src) {
         Ok(x) => x,
         Err(e) => {
@@ -79,24 +75,25 @@ async fn list(mut state: web::types::State<Arc<Mutex<AppState>>>) -> web::HttpRe
         }
     };
 
-    // TODO: Implement multiple readers, single writer
+    // TODO: Implement multiple readers, single writer or remove lock
     let mut post_list = vec![];
     {
         let cache = &state.lock().unwrap().posts;
 
         for (link, uuid) in cache.link_to_uuid.iter() {
-            // TODO: Implement From trait. Do we need to clone?
+            let post_link = format!("view/{}/", link);
             let post = cache.posts.get(uuid).unwrap();
-            let html = match render_post(post.content.as_str()) {
+            let html = match render_post(post.content.as_str(), Some(post_link.as_str())) {
                 Ok(html) => html,
                 Err(e) => return web::HttpResponse::InternalServerError()
                     .body(format!("Error rendering post: {}", e)),
             };
 
+            let (date, time) = parse_date_time(post.header.date.as_str());
             let post_item = PostItem {
-                date: post.header.date.clone(),
-                time: "TO_PARSE".to_string(), // TODO: Parse date time
-                link: format!("view/{}/", link),
+                date: date.to_string(),
+                time: time.to_string(),
+                link: post_link,
                 title: post.title.clone(),
                 summary: html,
             };
@@ -131,8 +128,8 @@ async fn post_files(path: web::types::Path<(String, String)>) -> Result<NamedFil
     }
 
     // TODO: Make it configurable
-    let file_name = format!("/home/thiago/src/texted2/posts/{}/{}", post, file);
-    let file_path = std::path::PathBuf::from_str(file_name.as_str()).unwrap();
+    let file_name = format!("/Users/thiago/src/texted2/posts/{}/{}", post, file);
+    let file_path = PathBuf::from_str(file_name.as_str()).unwrap();
 
     Ok(NamedFile::open(file_path)?)
 }
@@ -185,7 +182,7 @@ async fn view(path: web::types::Path<String>,
         }
     };
 
-    let html = match render_post(&post.content) {
+    let html = match render_post(&post.content, None) {
         Ok(post) => post,
         Err(e) => {
             return web::HttpResponse::InternalServerError()
@@ -193,13 +190,15 @@ async fn view(path: web::types::Path<String>,
         }
     };
 
+    let (date, time) = parse_date_time(post.header.date.as_str());
+
     // TODO: Ref instead of clone
     let rendered = view_tpl.render(&ViewItem { 
         errors: vec![], 
         id: post.header.id.clone(), 
         author: post.header.author.clone(), 
-        date: post.header.date.clone(), 
-        time: "to-fill".to_string(), 
+        date: date.to_string(),
+        time: time.to_string(),
         post_content: html
 
     });
@@ -216,7 +215,7 @@ async fn public_files(path: web::types::Path<String>) -> Result<NamedFile, web::
     }
 
     // TODO: Make it configurable
-    let mut file_name = "/home/thiago/src/texted2/res/public/".to_string();
+    let mut file_name = "/Users/thiago/src/texted2/res/public/".to_string();
     file_name.push_str(path.into_inner().as_str());
 
     let file_path = std::path::PathBuf::from_str(file_name.as_str()).unwrap();
@@ -265,7 +264,7 @@ async fn index(req: web::HttpRequest) -> web::HttpResponse {
 
 fn read_template(file_name: &str) -> Result<String, io::Error> {
     // TODO: Make it configurable
-    let tpl_path = std::path::PathBuf::from("/home/thiago/src/texted2/res/template");
+    let tpl_path = std::path::PathBuf::from("/Users/thiago/src/texted2/res/template");
     let full_path = tpl_path.join(file_name);
 
     std::fs::read_to_string(full_path)

@@ -65,14 +65,14 @@ mod tests {
 
     #[test]
     fn test_extract_link() {
-        let file_name = PathBuf::from("/home/thiago/src/texted2/posts/20200522_how_to_write_a_code_review/index.md");
+        let file_name = PathBuf::from("/Users/thiago/src/texted2/posts/20200522_how_to_write_a_code_review/index.md");
         let link = PostCache::get_link_from_path(&file_name).unwrap();
         assert_eq!(link, "20200522_how_to_write_a_code_review");
     }
 
     #[test]
     fn test_extract_link_error() {
-        let file_name = PathBuf::from("/home/thiago/src/texted2/posts/20200522_how_to_write_a_code_review/inddex.md");
+        let file_name = PathBuf::from("/Users/thiago/src/texted2/posts/20200522_how_to_write_a_code_review/inddex.md");
         let link = PostCache::get_link_from_path(&file_name);
         assert!(link.is_err());
     }
@@ -82,7 +82,7 @@ mod tests {
         let mut cache = PostCache::new();
         cache.add(Post {
             header: Header {
-                file_name: PathBuf::from("/home/thiago/src/texted2/posts/20200522_how_to_write_a_code_review/index.md"),
+                file_name: PathBuf::from("/Users/thiago/src/texted2/posts/20200522_how_to_write_a_code_review/index.md"),
                 id: "cbca23f4-9cb9-11ea-a1df-83d8f0a5e3cb".to_string(),
                 date: "2020-05-22 10:54:25.000".to_string(),
                 author: "thiago".to_string(),
@@ -92,7 +92,7 @@ mod tests {
         })?;
         cache.add(Post {
             header: Header {
-                file_name: PathBuf::from("/home/thiago/src/texted2/posts/20220402_what_i_learned/index.md"),
+                file_name: PathBuf::from("/Users/thiago/src/texted2/posts/20220402_what_i_learned/index.md"),
                 id: "a63bd715-a3fe-4788-b0e1-2a3153778544".to_string(),
                 date: "2022-04-02 12:05:00.000".to_string(),
                 author: "thiago".to_string(),
