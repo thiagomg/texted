@@ -52,7 +52,7 @@ impl Post {
         let mut id: String = "".to_string();
         let mut date: String = "".to_string();
         let mut author: String = "".to_string();
-        let mut title: String = "".to_string();
+        let title: String;
         let mut content: String;
 
         let mut maybe_line = lines.next();

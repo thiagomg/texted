@@ -1,6 +1,7 @@
 use std::{io, str::FromStr};
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
+use chrono::{Datelike, Utc};
 
 use ntex::web;
 use ntex_files::NamedFile;
@@ -221,7 +222,7 @@ async fn public_files(path: web::types::Path<String>) -> Result<NamedFile, web::
 }
 
 #[web::get("/")]
-async fn index(req: web::HttpRequest) -> web::HttpResponse {
+async fn index(req: web::HttpRequest, state: web::types::State<Arc<Mutex<AppState>>>) -> web::HttpResponse {
     let index_tpl_src: String = match read_template("index.tpl") {
         Ok(s) => s,
         Err(e) => {
@@ -238,11 +239,22 @@ async fn index(req: web::HttpRequest) -> web::HttpResponse {
         }
     };
 
+    let state = &state.lock().unwrap();
+    let cache = &state.posts;
+    let days_since_first_post = if cache.post_list.is_empty() {
+        0
+    } else {
+        let (date, _) = cache.post_list.first().unwrap();
+        let res = Utc::now().naive_utc().signed_duration_since(date.clone());
+        res.num_days()
+    };
+    let years_developing = (Utc::now().year() - state.programming_start_year) as i64;
+
     // TODO: Calculate numbers
     let rendered = index_tpl.render(&IndexPage {
-        years_developing: 23,
-        post_count: 12,
-        days_since_started: 821,
+        years_developing,
+        post_count: cache.posts.len() as i64,
+        days_since_started: days_since_first_post,
     });
 
     let mut referer: String = match req.headers().get("referer") {
@@ -268,17 +280,17 @@ fn read_template(file_name: &str) -> Result<String, io::Error> {
 }
 
 struct AppState {
-    app_name: String,
+    programming_start_year: i32,
     posts: PostCache,
 }
 
 pub async fn server_run() -> std::io::Result<()> {
     let app_state = Arc::new(Mutex::new(AppState {
-        app_name: "Thiago Cafe".to_string(),
+        programming_start_year: 2000, // TODO: Make it configurable
         posts: PostCache::new(),
     }));
 
-    let mut md_posts = match get_posts() {
+    let md_posts = match get_posts() {
         Ok(posts) => posts,
         Err(err) => {
             return Err(io::Error::new(io::ErrorKind::InvalidData, format!("Error retrieving post list template: {}", err)));
@@ -303,7 +315,7 @@ pub async fn server_run() -> std::io::Result<()> {
             .service(view_wo_slash)
             .service(post_files)
     })
-        .bind(("0.0.0.0", 8001))?
+        .bind(("0.0.0.0", 8001))? // TODO: Address and port should be configurable
         .run()
         .await
 }
