@@ -1,14 +1,17 @@
 use fmt::Display;
 use std::fmt::Formatter;
 use std::{fmt, fs, io};
+use std::io::ErrorKind;
 use std::path::PathBuf;
+use chrono::NaiveDateTime;
 use lazy_static::lazy_static;
 use regex::Regex;
+use crate::text_utils::parse_date_time;
 
 pub struct Header {
     pub file_name: PathBuf,
     pub id: String,
-    pub date: String, // TODO: convert to date time
+    pub date: NaiveDateTime,
     pub author: String,
 }
 
@@ -21,11 +24,11 @@ pub struct Post {
 impl Display for Post {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         write!(f, "id={}, date={}, author={}\ntitle={}\ncontent:\n{}",
-            self.header.id,
-            self.header.date,
-            self.header.author,
-            self.title,
-            self.content
+               self.header.id,
+               self.header.date,
+               self.header.author,
+               self.title,
+               self.content
         )
     }
 }
@@ -98,6 +101,13 @@ impl Post {
             }
         }
 
+        let date = match parse_date_time(&date) {
+            Ok(d) => Ok(d),
+            Err(e) => {
+                Err(io::Error::new(ErrorKind::InvalidData, format!("{} - file={}", e, file_name.to_str().unwrap())))
+            }
+        }.unwrap();
+
         Post {
             header: Header {
                 file_name: file_name.clone(),
@@ -110,7 +120,7 @@ impl Post {
         }
     }
 
-    fn extract_header(line: &str) -> Option<(&str,&str)> {
+    fn extract_header(line: &str) -> Option<(&str, &str)> {
         lazy_static! {
             static ref HEADER_REGEX : Regex = Regex::new(
                 r"\[(?P<key>\w+)\]: # \((?P<value>.+)\)"

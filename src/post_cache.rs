@@ -2,27 +2,35 @@ use std::collections::HashMap;
 use std::io;
 use std::io::ErrorKind;
 use std::path::PathBuf;
+use chrono::NaiveDateTime;
 use crate::post::Post;
 
-pub struct PostCache {
+pub struct PostItem {
+    pub post: Post,
+    pub link: String,
+}
 
+pub struct PostCache {
     // UUID, post
-    pub posts: HashMap<String, Post>,
+    pub posts: HashMap<String, PostItem>,
     pub link_to_uuid: HashMap<String, String>,
-    // TODO: add sorted list per date
+    pub post_list: Vec<(NaiveDateTime, String)>,
 
     // TODO: Add cache for rendered post
-
 }
 
 impl PostCache {
-    
     pub fn new() -> PostCache {
-        PostCache { posts: Default::default(), link_to_uuid: Default::default() }
+        PostCache { 
+            posts: Default::default(), 
+            link_to_uuid: Default::default(),
+            post_list: Default::default(),
+        }
     }
 
     fn get_link_from_path(path: &PathBuf) -> io::Result<&str> {
         if let Some(file_name) = path.file_name() {
+            // TODO: index.md should be configurable
             if file_name != "index.md" {
                 return Err(io::Error::new(ErrorKind::InvalidInput, "Invalid post file"));
             }
@@ -36,15 +44,34 @@ impl PostCache {
     }
 
     pub fn add(&mut self, post: Post) -> io::Result<()> {
-        let link = Self::get_link_from_path(&post.header.file_name)?;
-        self.link_to_uuid.insert(link.to_string(), post.header.id.clone());
-        self.posts.insert(post.header.id.clone(), post);
+        let link = Self::get_link_from_path(&post.header.file_name)?.to_string();
+
+        // Used for lookups from links
+        self.link_to_uuid.insert(link.clone(), post.header.id.clone());
+        self.post_list.push((post.header.date.clone(), post.header.id.clone()));
+
+        let post_item = PostItem {
+            post,
+            link,
+        };
+        self.posts.insert(post_item.post.header.id.clone(), post_item);
 
         Ok(())
     }
 
+    pub fn sort(&mut self) {
+        self.post_list.sort_by(|a, b| {
+            let (da, _) = a;
+            let (db, _) = b;
+            db.cmp(da)
+        });
+    }
+
     pub fn from_uuid(&self, uuid: &str) -> Option<&Post> {
-        self.posts.get(uuid)
+        match self.posts.get(uuid) {
+            None => None,
+            Some(post_item) => Some(&post_item.post)
+        }
     }
 
     pub fn from_link(&self, link: &str) -> Option<&Post> {
@@ -61,6 +88,7 @@ mod tests {
     use std::io;
     use std::path::PathBuf;
     use crate::post::Header;
+    use crate::text_utils::parse_date_time;
     use super::*;
 
     #[test]
@@ -84,7 +112,7 @@ mod tests {
             header: Header {
                 file_name: PathBuf::from("/Users/thiago/src/texted2/posts/20200522_how_to_write_a_code_review/index.md"),
                 id: "cbca23f4-9cb9-11ea-a1df-83d8f0a5e3cb".to_string(),
-                date: "2020-05-22 10:54:25.000".to_string(),
+                date: parse_date_time("2020-05-22 10:54:25.000").unwrap(),
                 author: "thiago".to_string(),
             },
             title: "How to write a Code Review".to_string(),
@@ -94,7 +122,7 @@ mod tests {
             header: Header {
                 file_name: PathBuf::from("/Users/thiago/src/texted2/posts/20220402_what_i_learned/index.md"),
                 id: "a63bd715-a3fe-4788-b0e1-2a3153778544".to_string(),
-                date: "2022-04-02 12:05:00.000".to_string(),
+                date: parse_date_time("2022-04-02 12:05:00.000").unwrap(),
                 author: "thiago".to_string(),
             },
             title: "What I learned after 20+ years of software development".to_string(),

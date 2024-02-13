@@ -1,4 +1,3 @@
-
 use std::{io, str::FromStr};
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
@@ -10,11 +9,10 @@ use crate::post::Post;
 use crate::post_cache::PostCache;
 use crate::post_list::PostList;
 use crate::post_render::render_post;
-use crate::text_utils::parse_date_time;
+use crate::text_utils::format_date_time;
 
 // TODO: MISSING
 // 1. Caching rendered pages - final html and no comments?
-// 3. Fill stats in the main page
 
 #[derive(Content)]
 struct IndexPage {
@@ -63,7 +61,7 @@ async fn list(state: web::types::State<Arc<Mutex<AppState>>>) -> web::HttpRespon
         Ok(s) => s,
         Err(e) => {
             return web::HttpResponse::InternalServerError()
-                .body(format!("Error loading postlist template: {}", e))
+                .body(format!("Error loading postlist template: {}", e));
         }
     };
 
@@ -71,7 +69,7 @@ async fn list(state: web::types::State<Arc<Mutex<AppState>>>) -> web::HttpRespon
         Ok(x) => x,
         Err(e) => {
             return web::HttpResponse::InternalServerError()
-                .body(format!("Error parsing postlist template: {}", e))
+                .body(format!("Error parsing postlist template: {}", e));
         }
     };
 
@@ -80,16 +78,17 @@ async fn list(state: web::types::State<Arc<Mutex<AppState>>>) -> web::HttpRespon
     {
         let cache = &state.lock().unwrap().posts;
 
-        for (link, uuid) in cache.link_to_uuid.iter() {
-            let post_link = format!("view/{}/", link);
-            let post = cache.posts.get(uuid).unwrap();
+        for (_, uuid) in cache.post_list.iter() {
+            let post_item = cache.posts.get(uuid.as_str()).unwrap();
+            let post_link = format!("view/{}/", post_item.link);
+            let post = &post_item.post;
             let html = match render_post(post.content.as_str(), Some(post_link.as_str())) {
                 Ok(html) => html,
                 Err(e) => return web::HttpResponse::InternalServerError()
                     .body(format!("Error rendering post: {}", e)),
             };
 
-            let (date, time) = parse_date_time(post.header.date.as_str());
+            let (date, time) = format_date_time(&post.header.date);
             let post_item = PostItem {
                 date: date.to_string(),
                 time: time.to_string(),
@@ -117,6 +116,7 @@ struct ViewItem {
     author: String,
     date: String,
     time: String,
+    post_title: String,
     post_content: String,
 }
 
@@ -136,24 +136,21 @@ async fn post_files(path: web::types::Path<(String, String)>) -> Result<NamedFil
 
 #[web::get("/view/{post}")]
 async fn view_wo_slash(path: web::types::Path<String>) -> web::HttpResponse {
-
     web::HttpResponse::TemporaryRedirect()
         .header("Location", path.into_inner() + "/")
         .content_type("text/html; charset=utf-8")
         .finish()
-
 }
 
 #[web::get("/view/{post}/")]
-async fn view(path: web::types::Path<String>, 
-    state: web::types::State<Arc<Mutex<AppState>>>
+async fn view(path: web::types::Path<String>,
+              state: web::types::State<Arc<Mutex<AppState>>>,
 ) -> web::HttpResponse {
-
     let view_tpl_src: String = match read_template("view.tpl") {
         Ok(s) => s,
         Err(e) => {
             return web::HttpResponse::InternalServerError()
-                .body(format!("Error loading post view template: {}", e))
+                .body(format!("Error loading post view template: {}", e));
         }
     };
 
@@ -162,11 +159,11 @@ async fn view(path: web::types::Path<String>,
         Ok(x) => x,
         Err(e) => {
             return web::HttpResponse::InternalServerError()
-                .body(format!("Error parsing post view template: {}", e))
+                .body(format!("Error parsing post view template: {}", e));
         }
     };
 
-    let posts : &PostCache = &state.lock().unwrap().posts;
+    let posts: &PostCache = &state.lock().unwrap().posts;
     let path = path.into_inner();
     let post_summary = match posts.from_link(&path) {
         Some(post) => post,
@@ -178,7 +175,7 @@ async fn view(path: web::types::Path<String>,
         Ok(post) => post,
         Err(e) => {
             return web::HttpResponse::InternalServerError()
-                .body(format!("Error loading post content: {}", e))
+                .body(format!("Error loading post content: {}", e));
         }
     };
 
@@ -186,21 +183,21 @@ async fn view(path: web::types::Path<String>,
         Ok(post) => post,
         Err(e) => {
             return web::HttpResponse::InternalServerError()
-                .body(format!("Error rendering post content: {}", e))
+                .body(format!("Error rendering post content: {}", e));
         }
     };
 
-    let (date, time) = parse_date_time(post.header.date.as_str());
+    let (date, time) = format_date_time(&post.header.date);
 
     // TODO: Ref instead of clone
-    let rendered = view_tpl.render(&ViewItem { 
-        errors: vec![], 
-        id: post.header.id.clone(), 
-        author: post.header.author.clone(), 
+    let rendered = view_tpl.render(&ViewItem {
+        errors: vec![],
+        id: post.header.id.clone(),
+        author: post.header.author.clone(),
         date: date.to_string(),
         time: time.to_string(),
-        post_content: html
-
+        post_title: post.title.clone(),
+        post_content: html,
     });
 
     web::HttpResponse::Ok()
@@ -229,7 +226,7 @@ async fn index(req: web::HttpRequest) -> web::HttpResponse {
         Ok(s) => s,
         Err(e) => {
             return web::HttpResponse::InternalServerError()
-                .body(format!("Error loading index template: {}", e))
+                .body(format!("Error loading index template: {}", e));
         }
     };
 
@@ -237,7 +234,7 @@ async fn index(req: web::HttpRequest) -> web::HttpResponse {
         Ok(x) => x,
         Err(e) => {
             return web::HttpResponse::InternalServerError()
-                .body(format!("Error parsing index template: {}", e))
+                .body(format!("Error parsing index template: {}", e));
         }
     };
 
@@ -281,20 +278,19 @@ pub async fn server_run() -> std::io::Result<()> {
         posts: PostCache::new(),
     }));
 
-        // TODO: Retrieve from cache first
-    let md_posts = match get_posts() {
+    let mut md_posts = match get_posts() {
         Ok(posts) => posts,
         Err(err) => {
             return Err(io::Error::new(io::ErrorKind::InvalidData, format!("Error retrieving post list template: {}", err)));
         }
     };
 
-    // TODO: If update cache
     {
         let cache = &mut app_state.lock().unwrap().posts;
         for post in md_posts {
             cache.add(post)?;
         }
+        cache.sort();
     }
 
     web::HttpServer::new(move || {
@@ -307,7 +303,7 @@ pub async fn server_run() -> std::io::Result<()> {
             .service(view_wo_slash)
             .service(post_files)
     })
-    .bind(("0.0.0.0", 8001))?
-    .run()
-    .await
+        .bind(("0.0.0.0", 8001))?
+        .run()
+        .await
 }

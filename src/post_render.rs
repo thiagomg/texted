@@ -49,7 +49,7 @@ pub fn change_images(post_name: &str, md_post: &str) -> String {
     let mut parsed_string = String::new();
     let mut remaining_input = md_post;
 
-    while let Some(mut text_start) = remaining_input.find("![") {
+    while let Some(text_start) = remaining_input.find("![") {
         let text_end = text_start + 2;
 
         // Append the text before the ![ pattern

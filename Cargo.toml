@@ -13,3 +13,4 @@ ramhorns = "0.14.0"
 lazy_static = { version = "1.4.0", features = [] }
 regex = "1.10"
 markdown = "1.0.0-alpha.16"
+chrono = "0.4.34"
