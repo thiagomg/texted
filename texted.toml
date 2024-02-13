@@ -1,0 +1,7 @@
+# For the file locations, If you want it to be relative to the executable directory
+# use ${exe_dir}/location
+[paths]
+template_dir = "res/template"
+public_dir = "res/public"
+posts_dir = "posts"
+

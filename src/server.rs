@@ -1,4 +1,4 @@
-use std::{io, str::FromStr};
+use std::io;
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 use chrono::{Datelike, Utc};
@@ -6,6 +6,7 @@ use chrono::{Datelike, Utc};
 use ntex::web;
 use ntex_files::NamedFile;
 use ramhorns::{Content, Template};
+use crate::config::Config;
 use crate::post::Post;
 use crate::post_cache::PostCache;
 use crate::post_list::PostList;
@@ -36,11 +37,10 @@ struct PostItem {
     summary: String,
 }
 
-fn get_posts() -> io::Result<Vec<Post>> {
-    // TODO: Move it to post_list
+fn get_posts(root_dir: &PathBuf) -> io::Result<Vec<Post>> {
     // TODO: Posts location should be configurable
-    let root_dir = PathBuf::from("/Users/thiago/src/texted2/posts");
-    let post_file = "index.md".to_string();
+    let post_file = "index.md".to_string(); // TODO: index.md should be configurable
+    let root_dir = root_dir.clone();
     let post_list = PostList { root_dir, post_file };
 
     let dirs = post_list.retrieve_dirs()?;
@@ -56,9 +56,10 @@ fn get_posts() -> io::Result<Vec<Post>> {
 
 #[web::get("/list")]
 async fn list(state: web::types::State<Arc<Mutex<AppState>>>) -> web::HttpResponse {
+    let state = &state.lock().unwrap();
 
-    // TODO: Make templates location and names configurable
-    let list_tpl_src: String = match read_template("postlist.tpl") {
+    let tpl_dir = &state.config.paths.template_dir;
+    let list_tpl_src: String = match read_template(tpl_dir, "postlist.tpl") {
         Ok(s) => s,
         Err(e) => {
             return web::HttpResponse::InternalServerError()
@@ -77,7 +78,7 @@ async fn list(state: web::types::State<Arc<Mutex<AppState>>>) -> web::HttpRespon
     // TODO: Implement multiple readers, single writer or remove lock
     let mut post_list = vec![];
     {
-        let cache = &state.lock().unwrap().posts;
+        let cache = &state.posts;
 
         for (_, uuid) in cache.post_list.iter() {
             let post_item = cache.posts.get(uuid.as_str()).unwrap();
@@ -122,15 +123,17 @@ struct ViewItem {
 }
 
 #[web::get("/view/{post}/{file}")]
-async fn post_files(path: web::types::Path<(String, String)>) -> Result<NamedFile, web::Error> {
+async fn post_files(path: web::types::Path<(String, String)>,
+                    state: web::types::State<Arc<Mutex<AppState>>>,
+) -> Result<NamedFile, web::Error> {
     let (post, file) = path.into_inner();
     if post.contains("../") || file.contains("../") {
         return Err(web::error::ErrorUnauthorized("Access forbidden").into());
     }
 
-    // TODO: Make it configurable
-    let file_name = format!("/Users/thiago/src/texted2/posts/{}/{}", post, file);
-    let file_path = PathBuf::from_str(file_name.as_str()).unwrap();
+    let state = state.lock().unwrap();
+    let post_location = &state.config.paths.posts_dir;
+    let file_path = post_location.join(post).join(file);
 
     Ok(NamedFile::open(file_path)?)
 }
@@ -147,7 +150,8 @@ async fn view_wo_slash(path: web::types::Path<String>) -> web::HttpResponse {
 async fn view(path: web::types::Path<String>,
               state: web::types::State<Arc<Mutex<AppState>>>,
 ) -> web::HttpResponse {
-    let view_tpl_src: String = match read_template("view.tpl") {
+    let state = state.lock().unwrap();
+    let view_tpl_src: String = match read_template(&state.config.paths.template_dir, "view.tpl") {
         Ok(s) => s,
         Err(e) => {
             return web::HttpResponse::InternalServerError()
@@ -164,7 +168,7 @@ async fn view(path: web::types::Path<String>,
         }
     };
 
-    let posts: &PostCache = &state.lock().unwrap().posts;
+    let posts: &PostCache = &state.posts;
     let path = path.into_inner();
     let post_summary = match posts.from_link(&path) {
         Some(post) => post,
@@ -207,23 +211,21 @@ async fn view(path: web::types::Path<String>,
 }
 
 #[web::get("/public/{file_name}")]
-async fn public_files(path: web::types::Path<String>) -> Result<NamedFile, web::Error> {
+async fn public_files(path: web::types::Path<String>, state: web::types::State<Arc<Mutex<AppState>>>) -> Result<NamedFile, web::Error> {
     if path.contains("../") {
         return Err(web::error::ErrorUnauthorized("Access forbidden").into());
     }
 
-    // TODO: Make it configurable
-    let mut file_name = "/Users/thiago/src/texted2/res/public/".to_string();
-    file_name.push_str(path.into_inner().as_str());
-
-    let file_path = std::path::PathBuf::from_str(file_name.as_str()).unwrap();
+    let state = state.lock().unwrap();
+    let file_path = state.config.paths.public_dir.join(path.into_inner());
 
     Ok(NamedFile::open(file_path)?)
 }
 
 #[web::get("/")]
 async fn index(req: web::HttpRequest, state: web::types::State<Arc<Mutex<AppState>>>) -> web::HttpResponse {
-    let index_tpl_src: String = match read_template("index.tpl") {
+    let state = state.lock().unwrap();
+    let index_tpl_src: String = match read_template(&state.config.paths.template_dir, "index.tpl") {
         Ok(s) => s,
         Err(e) => {
             return web::HttpResponse::InternalServerError()
@@ -239,7 +241,6 @@ async fn index(req: web::HttpRequest, state: web::types::State<Arc<Mutex<AppStat
         }
     };
 
-    let state = &state.lock().unwrap();
     let cache = &state.posts;
     let days_since_first_post = if cache.post_list.is_empty() {
         0
@@ -271,31 +272,30 @@ async fn index(req: web::HttpRequest, state: web::types::State<Arc<Mutex<AppStat
         .body(rendered)
 }
 
-fn read_template(file_name: &str) -> Result<String, io::Error> {
-    // TODO: Make it configurable
-    let tpl_path = std::path::PathBuf::from("/Users/thiago/src/texted2/res/template");
-    let full_path = tpl_path.join(file_name);
-
+fn read_template(tpl_dir: &PathBuf, file_name: &str) -> Result<String, io::Error> {
+    let full_path = tpl_dir.join(file_name);
     std::fs::read_to_string(full_path)
 }
 
 struct AppState {
     programming_start_year: i32,
     posts: PostCache,
+    config: Config,
 }
 
-pub async fn server_run() -> std::io::Result<()> {
+pub async fn server_run(config: Config) -> std::io::Result<()> {
+    let md_posts = match get_posts(&config.paths.posts_dir) {
+        Ok(posts) => posts,
+        Err(err) => {
+            return Err(io::Error::new(io::ErrorKind::InvalidData, format!("Error retrieving post list template: {}. Dir={}", err, config.paths.posts_dir.to_str().unwrap())));
+        }
+    };
+
     let app_state = Arc::new(Mutex::new(AppState {
         programming_start_year: 2000, // TODO: Make it configurable
         posts: PostCache::new(),
+        config,
     }));
-
-    let md_posts = match get_posts() {
-        Ok(posts) => posts,
-        Err(err) => {
-            return Err(io::Error::new(io::ErrorKind::InvalidData, format!("Error retrieving post list template: {}", err)));
-        }
-    };
 
     {
         let cache = &mut app_state.lock().unwrap().posts;

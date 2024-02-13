@@ -14,3 +14,4 @@ lazy_static = { version = "1.4.0", features = [] }
 regex = "1.10"
 markdown = "1.0.0-alpha.16"
 chrono = "0.4.34"
+toml = "0.8.10"
