@@ -11,8 +11,27 @@ pub struct Paths {
 }
 
 #[derive(Deserialize)]
+pub struct Personal {
+    pub activity_start_year: i32,
+}
+
+#[derive(Deserialize)]
+pub struct Posts {
+    pub post_file_name: String,
+}
+
+#[derive(Deserialize)]
+pub struct Server {
+    pub address: String,
+    pub port: u16,
+}
+
+#[derive(Deserialize)]
 pub struct Config {
+    pub personal: Personal,
     pub paths: Paths,
+    pub posts: Posts,
+    pub server: Server,
 }
 
 fn parse_path(path: PathBuf) -> PathBuf {

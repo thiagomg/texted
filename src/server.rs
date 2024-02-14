@@ -13,9 +13,6 @@ use crate::post_list::PostList;
 use crate::post_render::render_post;
 use crate::text_utils::format_date_time;
 
-// TODO: MISSING
-// 1. Caching rendered pages - final html and no comments?
-
 #[derive(Content)]
 struct IndexPage {
     years_developing: i64,
@@ -37,12 +34,16 @@ struct PostItem {
     summary: String,
 }
 
-fn get_posts(root_dir: &PathBuf) -> io::Result<Vec<Post>> {
-    // TODO: Posts location should be configurable
-    let post_file = "index.md".to_string(); // TODO: index.md should be configurable
+fn get_posts(root_dir: &PathBuf, post_file: &str) -> io::Result<Vec<Post>> {
     let root_dir = root_dir.clone();
-    let post_list = PostList { root_dir, post_file };
+    let post_list = PostList {
+        root_dir,
+        post_file: post_file.to_string(),
+    };
 
+    // TODO: Implement imageless post support
+    // 1. dir with index.md (or whatever is configured)
+    // 2. post_name.md (without image support)
     let dirs = post_list.retrieve_dirs()?;
     let mut posts = vec![];
     for dir in dirs.as_slice() {
@@ -112,14 +113,14 @@ async fn list(state: web::types::State<Arc<Mutex<AppState>>>) -> web::HttpRespon
 }
 
 #[derive(Content)]
-struct ViewItem {
+struct ViewItem<'a> {
     errors: Vec<String>,
-    id: String,
-    author: String,
-    date: String,
-    time: String,
-    post_title: String,
-    post_content: String,
+    id: &'a str,
+    author: &'a str,
+    date: &'a str,
+    time: &'a str,
+    post_title: &'a str,
+    post_content: &'a str,
 }
 
 #[web::get("/view/{post}/{file}")]
@@ -194,15 +195,14 @@ async fn view(path: web::types::Path<String>,
 
     let (date, time) = format_date_time(&post.header.date);
 
-    // TODO: Ref instead of clone
     let rendered = view_tpl.render(&ViewItem {
         errors: vec![],
-        id: post.header.id.clone(),
-        author: post.header.author.clone(),
-        date: date.to_string(),
-        time: time.to_string(),
-        post_title: post.title.clone(),
-        post_content: html,
+        id: post.header.id.as_str(),
+        author: post.header.author.as_str(),
+        date: date.as_str(),
+        time: time.as_str(),
+        post_title: post.title.as_str(),
+        post_content: html.as_str(),
     });
 
     web::HttpResponse::Ok()
@@ -249,9 +249,8 @@ async fn index(req: web::HttpRequest, state: web::types::State<Arc<Mutex<AppStat
         let res = Utc::now().naive_utc().signed_duration_since(date.clone());
         res.num_days()
     };
-    let years_developing = (Utc::now().year() - state.programming_start_year) as i64;
+    let years_developing = (Utc::now().year() - state.activity_start_year) as i64;
 
-    // TODO: Calculate numbers
     let rendered = index_tpl.render(&IndexPage {
         years_developing,
         post_count: cache.posts.len() as i64,
@@ -278,22 +277,24 @@ fn read_template(tpl_dir: &PathBuf, file_name: &str) -> Result<String, io::Error
 }
 
 struct AppState {
-    programming_start_year: i32,
+    activity_start_year: i32,
     posts: PostCache,
     config: Config,
 }
 
-pub async fn server_run(config: Config) -> std::io::Result<()> {
-    let md_posts = match get_posts(&config.paths.posts_dir) {
+pub async fn server_run(config: Config) -> io::Result<()> {
+    let md_posts = match get_posts(&config.paths.posts_dir, config.posts.post_file_name.as_str()) {
         Ok(posts) => posts,
         Err(err) => {
             return Err(io::Error::new(io::ErrorKind::InvalidData, format!("Error retrieving post list template: {}. Dir={}", err, config.paths.posts_dir.to_str().unwrap())));
         }
     };
 
+    let bind_addr = config.server.address.clone();
+    let bind_port = config.server.port;
     let app_state = Arc::new(Mutex::new(AppState {
-        programming_start_year: 2000, // TODO: Make it configurable
-        posts: PostCache::new(),
+        activity_start_year: config.personal.activity_start_year,
+        posts: PostCache::new(config.posts.post_file_name.as_str()),
         config,
     }));
 
@@ -315,7 +316,7 @@ pub async fn server_run(config: Config) -> std::io::Result<()> {
             .service(view_wo_slash)
             .service(post_files)
     })
-        .bind(("0.0.0.0", 8001))? // TODO: Address and port should be configurable
+        .bind((bind_addr, bind_port))?
         .run()
         .await
 }

@@ -35,13 +35,12 @@ impl PostList {
         for dir in dirs {
             let post_path = dir.as_path().join(post_file);
             if post_path.exists() {
-                // TODO: Validate the content of the post.md file is valid
+                // TODO: Validate the header of the post.md file is valid
                 post_dirs.push(dir);
             }
         }
         post_dirs
     }
-
 }
 
 #[cfg(test)]

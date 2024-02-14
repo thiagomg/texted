@@ -16,35 +16,36 @@ pub struct PostCache {
     pub link_to_uuid: HashMap<String, String>,
     pub post_list: Vec<(NaiveDateTime, String)>,
 
+    pub post_file_name: String,
     // TODO: Add cache for rendered post
 }
 
 impl PostCache {
-    pub fn new() -> PostCache {
-        PostCache { 
-            posts: Default::default(), 
+    pub fn new(post_file_name: &str) -> PostCache {
+        PostCache {
+            posts: Default::default(),
             link_to_uuid: Default::default(),
             post_list: Default::default(),
+            post_file_name: post_file_name.to_string(),
         }
     }
 
-    fn get_link_from_path(path: &PathBuf) -> io::Result<&str> {
+    fn get_link_from_path(&self, path: &PathBuf) -> io::Result<String> {
         if let Some(file_name) = path.file_name() {
-            // TODO: index.md should be configurable
-            if file_name != "index.md" {
+            if file_name.to_str().unwrap() != self.post_file_name {
                 return Err(io::Error::new(ErrorKind::InvalidInput, "Invalid post file"));
             }
         }
 
         let p = path.parent().ok_or(io::Error::new(ErrorKind::InvalidInput, "Could not find post link"))?;
         match p.file_name() {
-            Some(last_dir) => Ok(last_dir.to_str().unwrap()),
+            Some(last_dir) => Ok(last_dir.to_str().unwrap().to_string()),
             None => Err(io::Error::new(ErrorKind::InvalidInput, "Invalid post link"))
         }
     }
 
     pub fn add(&mut self, post: Post) -> io::Result<()> {
-        let link = Self::get_link_from_path(&post.header.file_name)?.to_string();
+        let link = self.get_link_from_path(&post.header.file_name)?.to_string();
 
         // Used for lookups from links
         self.link_to_uuid.insert(link.clone(), post.header.id.clone());
@@ -80,7 +81,6 @@ impl PostCache {
             None => None,
         }
     }
-
 }
 
 #[cfg(test)]
@@ -93,21 +93,23 @@ mod tests {
 
     #[test]
     fn test_extract_link() {
+        let cache = PostCache::new("index.md");
         let file_name = PathBuf::from("/Users/thiago/src/texted2/posts/20200522_how_to_write_a_code_review/index.md");
-        let link = PostCache::get_link_from_path(&file_name).unwrap();
+        let link = cache.get_link_from_path(&file_name).unwrap();
         assert_eq!(link, "20200522_how_to_write_a_code_review");
     }
 
     #[test]
     fn test_extract_link_error() {
+        let cache = PostCache::new("index.md");
         let file_name = PathBuf::from("/Users/thiago/src/texted2/posts/20200522_how_to_write_a_code_review/inddex.md");
-        let link = PostCache::get_link_from_path(&file_name);
+        let link = cache.get_link_from_path(&file_name);
         assert!(link.is_err());
     }
 
     #[test]
     fn test_happy_case() -> io::Result<()> {
-        let mut cache = PostCache::new();
+        let mut cache = PostCache::new("index.md");
         cache.add(Post {
             header: Header {
                 file_name: PathBuf::from("/Users/thiago/src/texted2/posts/20200522_how_to_write_a_code_review/index.md"),
@@ -137,5 +139,4 @@ mod tests {
 
         Ok(())
     }
-
 }

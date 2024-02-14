@@ -2,18 +2,6 @@ use std::ops::Index;
 use chrono::{NaiveDate, NaiveDateTime, NaiveTime};
 use regex::Regex;
 
-pub fn split_date_time(buf: &str) -> (&str, &str) {
-    let v: Vec<&str> = match buf.split(' ').collect::<Vec<_>>() {
-        v if v.len() == 1 => buf.split('_').collect(),
-        v => v,
-    };
-    if v.len() == 2 {
-        (v[0], v[1])
-    } else {
-        (buf, "")
-    }
-}
-
 fn to_int<T: std::str::FromStr>(num_str: &str, date_str: &str) -> Result<T, String> {
     match num_str.parse::<T>() {
         Ok(x) => Ok(x),
