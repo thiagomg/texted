@@ -31,16 +31,24 @@ impl PostCache {
     }
 
     fn get_link_from_path(&self, path: &PathBuf) -> io::Result<String> {
-        if let Some(file_name) = path.file_name() {
-            if file_name.to_str().unwrap() != self.post_file_name {
-                return Err(io::Error::new(ErrorKind::InvalidInput, "Invalid post file"));
+        let mut post_type = if let Some(file_name) = path.file_name() {
+            match file_name.to_str().unwrap() {
+                x if x == self.post_file_name => 'D',
+                x if x.ends_with(".md") => 'F',
+                _ => return Err(io::Error::new(ErrorKind::InvalidInput, "Invalid post file")),
             }
-        }
+        } else {
+            return Err(io::Error::new(ErrorKind::InvalidInput, "Invalid post path"));
+        };
 
-        let p = path.parent().ok_or(io::Error::new(ErrorKind::InvalidInput, "Could not find post link"))?;
-        match p.file_name() {
-            Some(last_dir) => Ok(last_dir.to_str().unwrap().to_string()),
-            None => Err(io::Error::new(ErrorKind::InvalidInput, "Invalid post link"))
+        if post_type == 'D' {
+            let p = path.parent().ok_or(io::Error::new(ErrorKind::InvalidInput, "Could not find post link"))?;
+            match p.file_name() {
+                Some(last_dir) => Ok(last_dir.to_str().unwrap().to_string()),
+                None => Err(io::Error::new(ErrorKind::InvalidInput, "Invalid post link"))
+            }
+        } else {
+            Ok(path.file_stem().unwrap().to_str().unwrap().to_string())
         }
     }
 

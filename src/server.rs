@@ -41,14 +41,18 @@ fn get_posts(root_dir: &PathBuf, post_file: &str) -> io::Result<Vec<Post>> {
         post_file: post_file.to_string(),
     };
 
-    // TODO: Implement imageless post support
-    // 1. dir with index.md (or whatever is configured)
-    // 2. post_name.md (without image support)
     let dirs = post_list.retrieve_dirs()?;
     let mut posts = vec![];
     for dir in dirs.as_slice() {
         let p = dir.join(&post_list.post_file);
         let post = Post::from(&p, true)?;
+        posts.push(post);
+    }
+
+    // Retrieve files in post directory
+    let md_posts: Vec<PathBuf> = post_list.retrieve_files()?;
+    for post_file in md_posts {
+        let post = Post::from(&post_file, true)?;
         posts.push(post);
     }
 

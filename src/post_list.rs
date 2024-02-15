@@ -7,6 +7,28 @@ pub struct PostList {
 }
 
 impl PostList {
+    pub fn retrieve_files(&self) -> io::Result<Vec<PathBuf>> {
+        let mut posts = vec![];
+        let entries = fs::read_dir(self.root_dir.as_path())?;
+        for entry in entries {
+            if let Ok(entry) = entry {
+                if let Ok(file_type) = entry.file_type() {
+                    if !file_type.is_file() {
+                        continue;
+                    }
+                    let file_name = entry.file_name();
+                    if let Some(file_name) = file_name.to_str() {
+                        // Check if the file has a .md extension
+                        if file_name.ends_with(".md") {
+                            posts.push(entry.path());
+                        }
+                    }
+                }
+            }
+        }
+        Ok(posts)
+    }
+
     pub fn retrieve_dirs(&self) -> io::Result<Vec<PathBuf>> {
         // Per directory, we should have a file called post.md
         let dirs = Self::list_dirs(self.root_dir.as_path())?;
