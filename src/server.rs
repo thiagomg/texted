@@ -249,7 +249,7 @@ async fn index(req: web::HttpRequest, state: web::types::State<Arc<Mutex<AppStat
     let days_since_first_post = if cache.post_list.is_empty() {
         0
     } else {
-        let (date, _) = cache.post_list.first().unwrap();
+        let (date, _) = cache.post_list.last().unwrap();
         let res = Utc::now().naive_utc().signed_duration_since(date.clone());
         res.num_days()
     };
