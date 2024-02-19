@@ -31,7 +31,7 @@ impl PostCache {
     }
 
     fn get_link_from_path(&self, path: &PathBuf) -> io::Result<String> {
-        let mut post_type = if let Some(file_name) = path.file_name() {
+        let post_type = if let Some(file_name) = path.file_name() {
             match file_name.to_str().unwrap() {
                 x if x == self.post_file_name => 'D',
                 x if x.ends_with(".md") => 'F',
