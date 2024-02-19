@@ -296,20 +296,19 @@ pub async fn server_run(config: Config) -> io::Result<()> {
 
     let bind_addr = config.server.address.clone();
     let bind_port = config.server.port;
-    let mut app_state = AppState {
+    let app_state = Arc::new(Mutex::new(AppState {
         activity_start_year: config.personal.activity_start_year,
         posts: PostCache::new(config.posts.post_file_name.as_str()),
         config,
-    };
+    }));
 
     {
+        let cache = &mut app_state.lock().unwrap().posts;
         for post in md_posts {
-            app_state.posts.add(post)?;
+            cache.add(post)?;
         }
-        app_state.posts.sort();
+        cache.sort();
     }
-
-    let app_state = Arc::new(app_state);
 
     web::HttpServer::new(move || {
         web::App::new()
