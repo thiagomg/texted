@@ -8,6 +8,7 @@ pub struct Paths {
     pub template_dir: PathBuf,
     pub public_dir: PathBuf,
     pub posts_dir: PathBuf,
+    pub pages_dir: PathBuf,
 }
 
 #[derive(Deserialize)]
@@ -16,8 +17,8 @@ pub struct Personal {
 }
 
 #[derive(Deserialize)]
-pub struct Posts {
-    pub post_file_name: String,
+pub struct Defaults {
+    pub index_file_name: String,
 }
 
 #[derive(Deserialize)]
@@ -30,7 +31,7 @@ pub struct Server {
 pub struct Config {
     pub personal: Personal,
     pub paths: Paths,
-    pub posts: Posts,
+    pub defaults: Defaults,
     pub server: Server,
 }
 
@@ -60,6 +61,7 @@ pub fn read_config(cfg_path: &PathBuf) -> io::Result<Config> {
         template_dir: parse_path(cfg.paths.template_dir),
         public_dir: parse_path(cfg.paths.public_dir),
         posts_dir: parse_path(cfg.paths.posts_dir),
+        pages_dir: parse_path(cfg.paths.pages_dir),
     };
 
     Ok(cfg)

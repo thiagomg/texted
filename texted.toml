@@ -7,10 +7,13 @@ activity_start_year = 2000
 template_dir = "res/template"
 public_dir = "res/public"
 posts_dir = "posts"
+pages_dir = "pages"
 
-[posts]
-post_file_name = "index.md"
+# Default file name if using directory instead of files
+[defaults]
+index_file_name = "index.md"
 
 [server]
 address = "0.0.0.0"
 port = 8001
+

@@ -2,8 +2,11 @@ use std::io;
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 use chrono::{Datelike, Utc};
+use ntex::http::Response;
 
 use ntex::web;
+use ntex::web::Error;
+use ntex::web::types::Path;
 use ntex_files::NamedFile;
 use ramhorns::{Content, Template};
 use crate::config::Config;
@@ -34,6 +37,13 @@ struct PostItem {
     summary: String,
 }
 
+struct AppState {
+    activity_start_year: i32,
+    posts: PostCache,
+    pages: PostCache,
+    config: Config,
+}
+
 fn get_posts(root_dir: &PathBuf, post_file: &str) -> io::Result<Vec<Post>> {
     let root_dir = root_dir.clone();
     let post_list = PostList {
@@ -57,6 +67,124 @@ fn get_posts(root_dir: &PathBuf, post_file: &str) -> io::Result<Vec<Post>> {
     }
 
     Ok(posts)
+}
+
+fn process_post(path: Path<String>, template_dir: &PathBuf, template_name: &str, posts: &PostCache) -> Result<Response, Response> {
+    let view_tpl_src: String = match read_template(template_dir, template_name) {
+        Ok(s) => s,
+        Err(e) => {
+            return Err(web::HttpResponse::InternalServerError()
+                .body(format!("Error loading post view template: {}", e)));
+        }
+    };
+
+    // TODO: Cache renderer?
+    let view_tpl = match Template::new(view_tpl_src) {
+        Ok(x) => x,
+        Err(e) => {
+            return Err(web::HttpResponse::InternalServerError()
+                .body(format!("Error parsing post view template: {}", e)));
+        }
+    };
+
+    let path = path.into_inner();
+    let post_summary = match posts.from_link(&path) {
+        Some(post) => post,
+        None => return Err(web::HttpResponse::InternalServerError()
+            .body(format!("Error loading post with link: {}", &path))),
+    };
+
+    let post = match Post::from(&post_summary.header.file_name, false) {
+        Ok(post) => post,
+        Err(e) => {
+            return Err(web::HttpResponse::InternalServerError()
+                .body(format!("Error loading post content: {}", e)));
+        }
+    };
+
+    let html = match render_post(&post.content, None) {
+        Ok(post) => post,
+        Err(e) => {
+            return Err(web::HttpResponse::InternalServerError()
+                .body(format!("Error rendering post content: {}", e)));
+        }
+    };
+
+    let (date, time) = format_date_time(&post.header.date);
+
+    let rendered = view_tpl.render(&ViewItem {
+        errors: vec![],
+        id: post.header.id.as_str(),
+        author: post.header.author.as_str(),
+        date: date.as_str(),
+        time: time.as_str(),
+        post_title: post.title.as_str(),
+        post_content: html.as_str(),
+    });
+
+    Ok(web::HttpResponse::Ok()
+        .content_type("text/html; charset=utf-8")
+        .body(&rendered))
+}
+
+fn read_template(tpl_dir: &PathBuf, file_name: &str) -> Result<String, io::Error> {
+    let full_path = tpl_dir.join(file_name);
+    std::fs::read_to_string(full_path)
+}
+
+fn get_file(root_dir: &PathBuf, post: String, file: String) -> Result<NamedFile, Error> {
+    if post.contains("../") || file.contains("../") {
+        return Err(web::error::ErrorUnauthorized("Access forbidden").into());
+    }
+
+    let file_path = root_dir.join(post).join(file);
+    Ok(NamedFile::open(file_path)?)
+}
+
+// Begin: Redirect region --------
+#[web::get("/view/{post}")]
+async fn view_wo_slash(path: web::types::Path<String>) -> web::HttpResponse {
+    web::HttpResponse::TemporaryRedirect()
+        .header("Location", path.into_inner() + "/")
+        .content_type("text/html; charset=utf-8")
+        .finish()
+}
+
+#[web::get("/page/{post}")]
+async fn page_wo_slash(path: web::types::Path<String>) -> web::HttpResponse {
+    web::HttpResponse::TemporaryRedirect()
+        .header("Location", path.into_inner() + "/")
+        .content_type("text/html; charset=utf-8")
+        .finish()
+}
+// End: Redirect region --------
+
+#[web::get("/page/{page}/")]
+async fn page(path: web::types::Path<String>,
+              state: web::types::State<Arc<Mutex<AppState>>>,
+) -> web::HttpResponse {
+    let state = state.lock().unwrap();
+    let template_dir = &state.config.paths.template_dir;
+    let posts: &PostCache = &state.pages;
+
+    match process_post(path, template_dir, "page.tpl", posts) {
+        Ok(value) => value,
+        Err(value) => return value,
+    }
+}
+
+#[web::get("/view/{post}/")]
+async fn view(path: web::types::Path<String>,
+              state: web::types::State<Arc<Mutex<AppState>>>,
+) -> web::HttpResponse {
+    let state = state.lock().unwrap();
+    let template_dir = &state.config.paths.template_dir;
+    let posts: &PostCache = &state.posts;
+
+    match process_post(path, template_dir, "view.tpl", posts) {
+        Ok(value) => value,
+        Err(value) => return value,
+    }
 }
 
 #[web::get("/list")]
@@ -132,86 +260,17 @@ async fn post_files(path: web::types::Path<(String, String)>,
                     state: web::types::State<Arc<Mutex<AppState>>>,
 ) -> Result<NamedFile, web::Error> {
     let (post, file) = path.into_inner();
-    if post.contains("../") || file.contains("../") {
-        return Err(web::error::ErrorUnauthorized("Access forbidden").into());
-    }
-
     let state = state.lock().unwrap();
-    let post_location = &state.config.paths.posts_dir;
-    let file_path = post_location.join(post).join(file);
-
-    Ok(NamedFile::open(file_path)?)
+    get_file(&state.config.paths.posts_dir, post, file)
 }
 
-#[web::get("/view/{post}")]
-async fn view_wo_slash(path: web::types::Path<String>) -> web::HttpResponse {
-    web::HttpResponse::TemporaryRedirect()
-        .header("Location", path.into_inner() + "/")
-        .content_type("text/html; charset=utf-8")
-        .finish()
-}
-
-#[web::get("/view/{post}/")]
-async fn view(path: web::types::Path<String>,
-              state: web::types::State<Arc<Mutex<AppState>>>,
-) -> web::HttpResponse {
+#[web::get("/page/{post}/{file}")]
+async fn page_files(path: web::types::Path<(String, String)>,
+                    state: web::types::State<Arc<Mutex<AppState>>>,
+) -> Result<NamedFile, web::Error> {
+    let (post, file) = path.into_inner();
     let state = state.lock().unwrap();
-    let view_tpl_src: String = match read_template(&state.config.paths.template_dir, "view.tpl") {
-        Ok(s) => s,
-        Err(e) => {
-            return web::HttpResponse::InternalServerError()
-                .body(format!("Error loading post view template: {}", e));
-        }
-    };
-
-    // TODO: Cache renderer?
-    let view_tpl = match Template::new(view_tpl_src) {
-        Ok(x) => x,
-        Err(e) => {
-            return web::HttpResponse::InternalServerError()
-                .body(format!("Error parsing post view template: {}", e));
-        }
-    };
-
-    let posts: &PostCache = &state.posts;
-    let path = path.into_inner();
-    let post_summary = match posts.from_link(&path) {
-        Some(post) => post,
-        None => return web::HttpResponse::InternalServerError()
-            .body(format!("Error loading post with link: {}", &path)),
-    };
-
-    let post = match Post::from(&post_summary.header.file_name, false) {
-        Ok(post) => post,
-        Err(e) => {
-            return web::HttpResponse::InternalServerError()
-                .body(format!("Error loading post content: {}", e));
-        }
-    };
-
-    let html = match render_post(&post.content, None) {
-        Ok(post) => post,
-        Err(e) => {
-            return web::HttpResponse::InternalServerError()
-                .body(format!("Error rendering post content: {}", e));
-        }
-    };
-
-    let (date, time) = format_date_time(&post.header.date);
-
-    let rendered = view_tpl.render(&ViewItem {
-        errors: vec![],
-        id: post.header.id.as_str(),
-        author: post.header.author.as_str(),
-        date: date.as_str(),
-        time: time.as_str(),
-        post_title: post.title.as_str(),
-        post_content: html.as_str(),
-    });
-
-    web::HttpResponse::Ok()
-        .content_type("text/html; charset=utf-8")
-        .body(&rendered)
+    get_file(&state.config.paths.pages_dir, post, file)
 }
 
 #[web::get("/public/{file_name}")]
@@ -275,39 +334,44 @@ async fn index(req: web::HttpRequest, state: web::types::State<Arc<Mutex<AppStat
         .body(rendered)
 }
 
-fn read_template(tpl_dir: &PathBuf, file_name: &str) -> Result<String, io::Error> {
-    let full_path = tpl_dir.join(file_name);
-    std::fs::read_to_string(full_path)
-}
-
-struct AppState {
-    activity_start_year: i32,
-    posts: PostCache,
-    config: Config,
-}
-
 pub async fn server_run(config: Config) -> io::Result<()> {
-    let md_posts = match get_posts(&config.paths.posts_dir, config.posts.post_file_name.as_str()) {
+    let md_posts = match get_posts(&config.paths.posts_dir, config.defaults.index_file_name.as_str()) {
         Ok(posts) => posts,
         Err(err) => {
             return Err(io::Error::new(io::ErrorKind::InvalidData, format!("Error retrieving post list template: {}. Dir={}", err, config.paths.posts_dir.to_str().unwrap())));
         }
     };
 
+    let md_pages = match get_posts(&config.paths.pages_dir, config.defaults.index_file_name.as_str()) {
+        Ok(posts) => posts,
+        Err(err) => {
+            return Err(io::Error::new(io::ErrorKind::InvalidData, format!("Error retrieving post list template: {}. Dir={}", err, config.paths.posts_dir.to_str().unwrap())));
+        }
+    };
+
+
     let bind_addr = config.server.address.clone();
     let bind_port = config.server.port;
     let app_state = Arc::new(Mutex::new(AppState {
         activity_start_year: config.personal.activity_start_year,
-        posts: PostCache::new(config.posts.post_file_name.as_str()),
+        posts: PostCache::new(config.defaults.index_file_name.as_str()),
+        pages: PostCache::new(config.defaults.index_file_name.as_str()),
         config,
     }));
 
     {
-        let cache = &mut app_state.lock().unwrap().posts;
+        let state = &mut app_state.lock().unwrap();
+        let post_cache = &mut state.posts;
         for post in md_posts {
-            cache.add(post)?;
+            post_cache.add(post)?;
         }
-        cache.sort();
+        post_cache.sort();
+
+        let page_cache = &mut state.pages;
+        for post in md_pages {
+            page_cache.add(post)?;
+        }
+        page_cache.sort();
     }
 
     web::HttpServer::new(move || {
@@ -319,6 +383,9 @@ pub async fn server_run(config: Config) -> io::Result<()> {
             .service(view)
             .service(view_wo_slash)
             .service(post_files)
+            .service(page)
+            .service(page_wo_slash)
+            .service(page_files)
     })
         .bind((bind_addr, bind_port))?
         .run()

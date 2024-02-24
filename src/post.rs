@@ -80,6 +80,9 @@ impl Post {
                     title = line[2..line.len()].to_string();
                     break;
                 }
+            } else {
+                title = "".to_string();
+                break;
             }
             maybe_line = lines.next();
         }

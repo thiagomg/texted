@@ -19,5 +19,8 @@
     <p>Template images should be added in the public directory</p>
     <img src="public/dino.jpg">
 
+    <p>Pages are supported too</p>
+    <p><a href="page/bio">My bio</a></p>
+
 </body>
 </html>
