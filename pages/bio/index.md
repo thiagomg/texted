@@ -4,15 +4,19 @@
 
 # Bio
 
-Hey there!
+John Doe is an ordinary individual who was born and raised in the suburban town of Anytown. 
+Throughout his life, John has never displayed any exceptional talents or strengths. 
+He attended the local public schools where he achieved average grades without standing out academically.
 
-Just your average Joe (or Josephine), livin' the life.  
+After graduating from high school, John pursued higher education at a community college, where he obtained a degree in general studies.
+Despite his efforts, he never discovered a particular passion or calling in any field of study.
 
-I'm not gonna win any talent shows, but I'm a pretty decent in doing nothing. Plus, some say I am mean. It's a lie. I am just average!
+In terms of career, John has held various positions in different industries, from retail to customer service. 
+However, he has never found a job that truly resonated with him or allowed him to excel.
 
-What I do got going for me:
+In his personal life, John enjoys spending time with friends and family, but he doesn't have any remarkable hobbies or interests.
+He often spends his free time engaging in mundane activities like watching TV, playing video games, or scrolling through social media.
 
-Laughter skills (even if my jokes are groan-worthy).
-A good ear for listening (and maybe some unsolicited advice).
-A willingness to try anything once (except maybe skydiving...NOPE).
-
+Overall, John is a typical individual who leads a simple and unremarkable life. 
+While he may not possess any exceptional talents or strengths, he strives to make the average of each day and find 
+some contentment in the ordinary moments of life.
