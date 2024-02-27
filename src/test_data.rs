@@ -1,4 +1,4 @@
-
+#[cfg(test)]
 pub const POST_DATA: &str = "[ID]: # (a63bd715-a3fe-4788-b0e1-2a3153778544)
 [DATE]: # (2022-04-02 12:05:00.000)
 [AUTHOR]: # (thiago)

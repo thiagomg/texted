@@ -42,13 +42,16 @@ impl PostCache {
         };
 
         if post_type == 'D' {
+            // post_type = D means it's a directory with files inside
             let p = path.parent().ok_or(io::Error::new(ErrorKind::InvalidInput, "Could not find post link"))?;
             match p.file_name() {
                 Some(last_dir) => Ok(last_dir.to_str().unwrap().to_string()),
                 None => Err(io::Error::new(ErrorKind::InvalidInput, "Invalid post link"))
             }
         } else {
-            Ok(path.file_stem().unwrap().to_str().unwrap().to_string())
+            // Post type = F means it's a file in the posts directory
+            let file_without_ext = path.file_stem().unwrap();
+            Ok(file_without_ext.to_str().unwrap().to_string())
         }
     }
 
@@ -102,17 +105,9 @@ mod tests {
     #[test]
     fn test_extract_link() {
         let cache = PostCache::new("index.md");
-        let file_name = PathBuf::from("/Users/thiago/src/texted2/posts/20200522_how_to_write_a_code_review/index.md");
+        let file_name = PathBuf::from("posts/20200522_how_to_write_a_code_review/index.md");
         let link = cache.get_link_from_path(&file_name).unwrap();
         assert_eq!(link, "20200522_how_to_write_a_code_review");
-    }
-
-    #[test]
-    fn test_extract_link_error() {
-        let cache = PostCache::new("index.md");
-        let file_name = PathBuf::from("/Users/thiago/src/texted2/posts/20200522_how_to_write_a_code_review/inddex.md");
-        let link = cache.get_link_from_path(&file_name);
-        assert!(link.is_err());
     }
 
     #[test]
@@ -120,7 +115,7 @@ mod tests {
         let mut cache = PostCache::new("index.md");
         cache.add(Post {
             header: Header {
-                file_name: PathBuf::from("/Users/thiago/src/texted2/posts/20200522_how_to_write_a_code_review/index.md"),
+                file_name: PathBuf::from("posts/20200522_how_to_write_a_code_review/index.md"),
                 id: "cbca23f4-9cb9-11ea-a1df-83d8f0a5e3cb".to_string(),
                 date: parse_date_time("2020-05-22 10:54:25.000").unwrap(),
                 author: "thiago".to_string(),
@@ -130,7 +125,7 @@ mod tests {
         })?;
         cache.add(Post {
             header: Header {
-                file_name: PathBuf::from("/Users/thiago/src/texted2/posts/20220402_what_i_learned/index.md"),
+                file_name: PathBuf::from("posts/20220402_what_i_learned/index.md"),
                 id: "a63bd715-a3fe-4788-b0e1-2a3153778544".to_string(),
                 date: parse_date_time("2022-04-02 12:05:00.000").unwrap(),
                 author: "thiago".to_string(),

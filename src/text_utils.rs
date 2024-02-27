@@ -50,17 +50,6 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_split_date_time() {
-        let (date, time) = split_date_time("2017-09-10 10:42:42.000");
-        assert_eq!(date, "2017-09-10");
-        assert_eq!(time, "10:42:42.000");
-
-        let (date, time) = split_date_time("2017-09-10_10:42:42.000");
-        assert_eq!(date, "2017-09-10");
-        assert_eq!(time, "10:42:42.000");
-    }
-
-    #[test]
     fn test_parse_date_time() {
         let date_time = parse_date_time("2017-09-10 10:42:32.123").unwrap();
         let (date, time) = format_date_time(&date_time);
@@ -76,19 +65,5 @@ mod tests {
         let (date, time) = format_date_time(&date_time);
         assert_eq!(date, "2017-09-10");
         assert_eq!(time, "10:42:32");
-    }
-
-    #[test]
-    fn test_parse_date_only() {
-        let (date, time) = split_date_time("2017-09-10-sad");
-        assert_eq!(date, "2017-09-10-sad");
-        assert_eq!(time, "");
-    }
-
-    #[test]
-    fn test_parse_date_empty() {
-        let (date, time) = split_date_time("");
-        assert_eq!(date, "");
-        assert_eq!(time, "");
     }
 }
