@@ -8,6 +8,24 @@ Why did I create one blog system instead of using some existing blog platform?
 
 ## Getting started
 
+Installing
+
+```bash
+cargo install texted2
+```
+
+Generating a sample configuration
+
+```bash
+# Generates a config file in the current directory
+texted2 --generate-cfg -c texted2.toml
+
+# Or to generate in the default config directory
+texted2 --generate-cfg
+```
+
+### Building from sources
+
 How to build?
 
 ```bash
@@ -82,4 +100,4 @@ See post_without_images.md or post_with_image/index.md for an example
 
 ### Tip
 
-If you run the post-create binary, it will create a post skeleton with header, title and sample body to you.
+If you run the texted2-post binary, it will create a post skeleton with header, title and sample body to you.
