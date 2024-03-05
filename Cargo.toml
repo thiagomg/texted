@@ -2,6 +2,11 @@
 name = "texted2"
 version = "0.1.0"
 edition = "2021"
+authors = ["Thiago Massari Guedes"]
+license = "Apache-2.0"
+homepage = "https://gitlab.com/thiagomg/texted2"
+repository = "https://gitlab.com/thiagomg/texted2"
+description = "A markdown blog platform that lets you in control of your data"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
