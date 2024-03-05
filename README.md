@@ -35,7 +35,7 @@ cargo build --release
 How to run?
 
 ```bash
-cargo run
+cargo run --bin texted2
 ```
 
 ## How to personalise my site?
