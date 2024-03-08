@@ -5,8 +5,7 @@ use chrono::{Datelike, Utc};
 use ntex::http::Response;
 
 use ntex::web;
-use ntex::web::Error;
-use ntex::web::types::Path;
+use ntex::web::{Error, HttpRequest};
 use ntex_files::NamedFile;
 use ramhorns::{Content, Template};
 use crate::config::Config;
@@ -24,8 +23,9 @@ struct IndexPage {
 }
 
 #[derive(Content)]
-struct ListPage {
+struct ListPage<'a> {
     post_list: Vec<PostItem>,
+    tags: Vec<ViewTag<'a>>,
 }
 
 #[derive(Content)]
@@ -35,6 +35,23 @@ struct PostItem {
     link: String,
     title: String,
     summary: String,
+}
+
+#[derive(Content)]
+struct ViewItem<'a> {
+    errors: Vec<String>,
+    id: &'a str,
+    author: &'a str,
+    tags: &'a Vec<ViewTag<'a>>,
+    date: &'a str,
+    time: &'a str,
+    post_title: &'a str,
+    post_content: &'a str,
+}
+
+#[derive(Content)]
+struct ViewTag<'a> {
+    tag: &'a str,
 }
 
 struct AppState {
@@ -69,7 +86,7 @@ fn get_posts(root_dir: &PathBuf, post_file: &str) -> io::Result<Vec<Post>> {
     Ok(posts)
 }
 
-fn process_post(path: Path<String>, template_dir: &PathBuf, template_name: &str, posts: &PostCache) -> Result<Response, Response> {
+fn process_post(path: String, template_dir: &PathBuf, template_name: &str, posts: &PostCache) -> Result<Response, Response> {
     let view_tpl_src: String = match read_template(template_dir, template_name) {
         Ok(s) => s,
         Err(e) => {
@@ -87,8 +104,7 @@ fn process_post(path: Path<String>, template_dir: &PathBuf, template_name: &str,
         }
     };
 
-    let path = path.into_inner();
-    let post_summary = match posts.from_link(&path) {
+    let post_summary = match posts.with_link(&path) {
         Some(post) => post,
         None => return Err(web::HttpResponse::InternalServerError()
             .body(format!("Error loading post with link: {}", &path))),
@@ -112,10 +128,13 @@ fn process_post(path: Path<String>, template_dir: &PathBuf, template_name: &str,
 
     let (date, time) = format_date_time(&post.header.date);
 
+    let ref tags: Vec<ViewTag> = post.header.tags.iter().map(|t| ViewTag { tag: t.as_str() }).collect();
+
     let rendered = view_tpl.render(&ViewItem {
         errors: vec![],
         id: post.header.id.as_str(),
         author: post.header.author.as_str(),
+        tags,
         date: date.as_str(),
         time: time.as_str(),
         post_title: post.title.as_str(),
@@ -125,6 +144,62 @@ fn process_post(path: Path<String>, template_dir: &PathBuf, template_name: &str,
     Ok(web::HttpResponse::Ok()
         .content_type("text/html; charset=utf-8")
         .body(&rendered))
+}
+
+fn list_posts(tpl_dir: &PathBuf, cache: &PostCache, tag: Option<String>) -> Result<String, String> {
+    let list_tpl_src: String = match read_template(tpl_dir, "postlist.tpl") {
+        Ok(s) => s,
+        Err(e) => {
+            return Err(format!("Error loading postlist template: {}", e));
+        }
+    };
+
+    let list_tpl = match Template::new(list_tpl_src) {
+        Ok(x) => x,
+        Err(e) => {
+            return Err(format!("Error parsing postlist template: {}", e));
+        }
+    };
+
+    // TODO: Implement multiple readers, single writer or remove lock
+    let mut post_list = vec![];
+    {
+        for (_, uuid) in cache.post_list().iter() {
+            let post_item = cache.posts().get(uuid.as_str()).unwrap();
+            let post_link = format!("/view/{}/", post_item.link);
+            let post = &post_item.post;
+
+            // TODO: This is not efficient when we have a long list of items. Needs improvement in the future
+            if let Some(ref tag) = tag {
+                if !post.header.tags.contains(tag) {
+                    continue;
+                }
+            }
+
+
+            let html = match render_post(post.content.as_str(), Some(post_link.as_str())) {
+                Ok(html) => html,
+                Err(e) => return Err(format!("Error rendering post: {}", e)),
+            };
+
+            let (date, time) = format_date_time(&post.header.date);
+            let post_item = PostItem {
+                date: date.to_string(),
+                time: time.to_string(),
+                link: post_link,
+                title: post.title.clone(),
+                summary: html,
+            };
+            post_list.push(post_item);
+        }
+    }
+
+    let tags = cache.tags().iter().map(|t| ViewTag { tag: t.as_str() }).collect();
+    let rendered = list_tpl.render(&ListPage {
+        post_list,
+        tags,
+    });
+    Ok(rendered)
 }
 
 fn read_template(tpl_dir: &PathBuf, file_name: &str) -> Result<String, io::Error> {
@@ -140,6 +215,49 @@ fn get_file(root_dir: &PathBuf, post: String, file: String) -> Result<NamedFile,
     let file_path = root_dir.join(post).join(file);
     Ok(NamedFile::open(file_path)?)
 }
+
+fn render_index(req: HttpRequest, cache: &&PostCache, tpl_dir: &PathBuf, activity_start_year: i32) -> Result<String, String> {
+    let index_tpl_src: String = match read_template(tpl_dir, "index.tpl") {
+        Ok(s) => s,
+        Err(e) => {
+            return Err(format!("Error loading index template: {}", e));
+        }
+    };
+
+    let index_tpl = match Template::new(index_tpl_src) {
+        Ok(x) => x,
+        Err(e) => {
+            return Err(format!("Error parsing index template: {}", e));
+        }
+    };
+
+
+    let days_since_first_post = if cache.post_list().is_empty() {
+        0
+    } else {
+        let (date, _) = cache.post_list().last().unwrap();
+        let res = Utc::now().naive_utc().signed_duration_since(date.clone());
+        res.num_days()
+    };
+    let years_developing = (Utc::now().year() - activity_start_year) as i64;
+
+    let rendered = index_tpl.render(&IndexPage {
+        years_developing,
+        post_count: cache.posts().len() as i64,
+        days_since_started: days_since_first_post,
+    });
+
+    let mut referer: String = match req.headers().get("referer") {
+        Some(v) => v.to_str().unwrap().to_string(),
+        None => "http://sei-la/".to_string(),
+    };
+
+    if !referer.ends_with("/") {
+        referer += "/";
+    }
+    Ok(rendered)
+}
+
 
 // Begin: Redirect region --------
 #[web::get("/view/{post}")]
@@ -166,6 +284,7 @@ async fn page(path: web::types::Path<String>,
     let state = state.lock().unwrap();
     let template_dir = &state.config.paths.template_dir;
     let posts: &PostCache = &state.pages;
+    let path = path.into_inner();
 
     match process_post(path, template_dir, "page.tpl", posts) {
         Ok(value) => value,
@@ -180,6 +299,7 @@ async fn view(path: web::types::Path<String>,
     let state = state.lock().unwrap();
     let template_dir = &state.config.paths.template_dir;
     let posts: &PostCache = &state.posts;
+    let path = path.into_inner();
 
     match process_post(path, template_dir, "view.tpl", posts) {
         Ok(value) => value,
@@ -190,69 +310,38 @@ async fn view(path: web::types::Path<String>,
 #[web::get("/list")]
 async fn list(state: web::types::State<Arc<Mutex<AppState>>>) -> web::HttpResponse {
     let state = &state.lock().unwrap();
-
     let tpl_dir = &state.config.paths.template_dir;
-    let list_tpl_src: String = match read_template(tpl_dir, "postlist.tpl") {
-        Ok(s) => s,
-        Err(e) => {
-            return web::HttpResponse::InternalServerError()
-                .body(format!("Error loading postlist template: {}", e));
-        }
+    let cache = &state.posts;
+
+    let response = match list_posts(tpl_dir, cache, None) {
+        Ok(body) => web::HttpResponse::Ok()
+            .content_type("text/html; charset=utf-8")
+            .body(body),
+        Err(error) => return web::HttpResponse::InternalServerError()
+            .body(error),
     };
 
-    let list_tpl = match Template::new(list_tpl_src) {
-        Ok(x) => x,
-        Err(e) => {
-            return web::HttpResponse::InternalServerError()
-                .body(format!("Error parsing postlist template: {}", e));
-        }
-    };
-
-    // TODO: Implement multiple readers, single writer or remove lock
-    let mut post_list = vec![];
-    {
-        let cache = &state.posts;
-
-        for (_, uuid) in cache.post_list.iter() {
-            let post_item = cache.posts.get(uuid.as_str()).unwrap();
-            let post_link = format!("view/{}/", post_item.link);
-            let post = &post_item.post;
-            let html = match render_post(post.content.as_str(), Some(post_link.as_str())) {
-                Ok(html) => html,
-                Err(e) => return web::HttpResponse::InternalServerError()
-                    .body(format!("Error rendering post: {}", e)),
-            };
-
-            let (date, time) = format_date_time(&post.header.date);
-            let post_item = PostItem {
-                date: date.to_string(),
-                time: time.to_string(),
-                link: post_link,
-                title: post.title.clone(),
-                summary: html,
-            };
-            post_list.push(post_item);
-        }
-    }
-
-    let rendered = list_tpl.render(&ListPage {
-        post_list
-    });
-
-    web::HttpResponse::Ok()
-        .content_type("text/html; charset=utf-8")
-        .body(rendered)
+    response
 }
 
-#[derive(Content)]
-struct ViewItem<'a> {
-    errors: Vec<String>,
-    id: &'a str,
-    author: &'a str,
-    date: &'a str,
-    time: &'a str,
-    post_title: &'a str,
-    post_content: &'a str,
+#[web::get("/list/{tag}/")]
+async fn list_with_tags(
+    path: web::types::Path<String>,
+    state: web::types::State<Arc<Mutex<AppState>>>) -> web::HttpResponse {
+    let state = &state.lock().unwrap();
+    let tpl_dir = &state.config.paths.template_dir;
+    let cache = &state.posts;
+    let tag = path.into_inner();
+
+    let response = match list_posts(tpl_dir, cache, Some(tag)) {
+        Ok(body) => web::HttpResponse::Ok()
+            .content_type("text/html; charset=utf-8")
+            .body(body),
+        Err(error) => return web::HttpResponse::InternalServerError()
+            .body(error),
+    };
+
+    response
 }
 
 #[web::get("/view/{post}/{file}")]
@@ -288,50 +377,20 @@ async fn public_files(path: web::types::Path<String>, state: web::types::State<A
 #[web::get("/")]
 async fn index(req: web::HttpRequest, state: web::types::State<Arc<Mutex<AppState>>>) -> web::HttpResponse {
     let state = state.lock().unwrap();
-    let index_tpl_src: String = match read_template(&state.config.paths.template_dir, "index.tpl") {
-        Ok(s) => s,
-        Err(e) => {
-            return web::HttpResponse::InternalServerError()
-                .body(format!("Error loading index template: {}", e));
-        }
-    };
-
-    let index_tpl = match Template::new(index_tpl_src) {
-        Ok(x) => x,
-        Err(e) => {
-            return web::HttpResponse::InternalServerError()
-                .body(format!("Error parsing index template: {}", e));
-        }
-    };
-
     let cache = &state.posts;
-    let days_since_first_post = if cache.post_list.is_empty() {
-        0
-    } else {
-        let (date, _) = cache.post_list.last().unwrap();
-        let res = Utc::now().naive_utc().signed_duration_since(date.clone());
-        res.num_days()
-    };
-    let years_developing = (Utc::now().year() - state.activity_start_year) as i64;
+    let tpl_dir = &state.config.paths.template_dir;
+    let activity_start_year = state.activity_start_year;
 
-    let rendered = index_tpl.render(&IndexPage {
-        years_developing,
-        post_count: cache.posts.len() as i64,
-        days_since_started: days_since_first_post,
-    });
 
-    let mut referer: String = match req.headers().get("referer") {
-        Some(v) => v.to_str().unwrap().to_string(),
-        None => "http://sei-la/".to_string(),
+    let response = match render_index(req, &cache, tpl_dir, activity_start_year) {
+        Ok(rendered) => web::HttpResponse::Ok()
+            .content_type("text/html; charset=utf-8")
+            .body(rendered),
+        Err(error) => return web::HttpResponse::InternalServerError()
+            .body(error),
     };
 
-    if !referer.ends_with("/") {
-        referer += "/";
-    }
-
-    web::HttpResponse::Ok()
-        .content_type("text/html; charset=utf-8")
-        .body(rendered)
+    response
 }
 
 pub async fn server_run(config: Config) -> io::Result<()> {
@@ -380,6 +439,7 @@ pub async fn server_run(config: Config) -> io::Result<()> {
             .service(index)
             .service(public_files)
             .service(list)
+            .service(list_with_tags)
             .service(view)
             .service(view_wo_slash)
             .service(post_files)

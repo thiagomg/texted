@@ -6,6 +6,15 @@
 <body>
     <div>
         Created by {{author}} on {{date}} {{time}}
+        <p>
+        Tags:
+        {{#tags}}
+        <a href="/list/{{tag}}/">#{{tag}}</a>
+        {{/tags}}
+        {{^tags}}
+        No tags
+        {{/tags}}
+        </p>
 
         <div class="post-title">
         <h1>{{{post_title}}}</h1>

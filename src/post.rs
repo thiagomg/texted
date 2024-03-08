@@ -13,6 +13,7 @@ pub struct Header {
     pub id: String,
     pub date: NaiveDateTime,
     pub author: String,
+    pub tags: Vec<String>,
 }
 
 pub struct Post {
@@ -52,6 +53,7 @@ impl Post {
         let mut id: String = "".to_string();
         let mut date: String = "".to_string();
         let mut author: String = "".to_string();
+        let mut tags: String = "".to_string();
         let title: String;
         let mut content: String;
 
@@ -67,6 +69,7 @@ impl Post {
                     "ID" => id = val.to_string(),
                     "DATE" => date = val.to_string(),
                     "AUTHOR" => author = val.to_string(),
+                    "TAGS" => tags = val.to_string(),
                     _ => {}
                 }
             }
@@ -111,12 +114,15 @@ impl Post {
             }
         }.unwrap();
 
+        let tags = Self::extract_tags(&tags);
+
         Post {
             header: Header {
                 file_name: file_name.clone(),
                 id,
                 date,
                 author,
+                tags,
             },
             title,
             content,
@@ -141,6 +147,14 @@ impl Post {
 
         res
     }
+
+    fn extract_tags(tags_str: &str) -> Vec<String> {
+        let x = tags_str.split(' ')
+            .filter(|x| !x.is_empty())
+            .map(|s| s.to_string())
+            .collect();
+        x
+    }
 }
 
 
@@ -157,6 +171,8 @@ mod tests {
         assert_eq!(res, Some(("DATE", "2022-04-02 12:05:00.000")));
         let res = Post::extract_header("[AUTHOR]: # (thiago)");
         assert_eq!(res, Some(("AUTHOR", "thiago")));
+        let res = Post::extract_header("[TAGS]: # (rust something-else)");
+        assert_eq!(res, Some(("TAGS", "rust something-else")));
 
         let res = Post::extract_header("[AUTHOR]: (thiago)");
         assert!(res.is_none());
@@ -167,5 +183,21 @@ mod tests {
         let file_name = PathBuf::from("posts/20200522_how_to_write_a_code_review/index.md");
         let post = Post::from_string(&file_name, &POST_DATA.to_string(), true);
         println!("{}", post);
+        assert_eq!(post.content, r##"How to be a great software engineer?
+
+Someone asked me this question today and I didn’t have an answer. After thinking for a while, I came up with a list of what I try to do myself.
+
+Disclaimer: I don't think I am a great engineer, but I would love to have listened to that myself when I started my career, over 20 years ago.
+
+I will divide this in parts, non-technical and technical
+
+"##);
+    }
+
+    #[test]
+    fn test_extract_tags() {
+        let tags_str = "one two three   four";
+        let tags = Post::extract_tags(tags_str);
+        assert_eq!(tags, ["one", "two", "three", "four"]);
     }
 }

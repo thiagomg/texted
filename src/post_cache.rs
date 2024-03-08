@@ -1,3 +1,4 @@
+use std::cmp::Ordering;
 use std::collections::HashMap;
 use std::io;
 use std::io::ErrorKind;
@@ -12,12 +13,18 @@ pub struct PostItem {
 
 pub struct PostCache {
     // UUID, post
-    pub posts: HashMap<String, PostItem>,
-    pub link_to_uuid: HashMap<String, String>,
-    pub post_list: Vec<(NaiveDateTime, String)>,
+    posts: HashMap<String, PostItem>,
 
-    pub post_file_name: String,
+    // As we change those two inside, we need to make sure they are not being changed from the outside
+    // To prevent mismatches
+    link_to_uuid: HashMap<String, String>,
+    post_list: Vec<(NaiveDateTime, String)>,
+
+    post_file_name: String,
     // TODO: Add cache for rendered post
+
+    tag_map: HashMap<String, u32>,
+    tags: Vec<String>,
 }
 
 impl PostCache {
@@ -27,6 +34,8 @@ impl PostCache {
             link_to_uuid: Default::default(),
             post_list: Default::default(),
             post_file_name: post_file_name.to_string(),
+            tag_map: Default::default(),
+            tags: Default::default(),
         }
     }
 
@@ -66,6 +75,12 @@ impl PostCache {
             post,
             link,
         };
+
+        // Update tags map
+        for tag in post_item.post.header.tags.iter() {
+            *self.tag_map.entry(tag.clone()).or_insert(0) += 1;
+        }
+
         self.posts.insert(post_item.post.header.id.clone(), post_item);
 
         Ok(())
@@ -77,20 +92,55 @@ impl PostCache {
             let (db, _) = b;
             db.cmp(da)
         });
+
+        let tag_list = Self::sort_by_frequency(&self.tag_map);
+        self.tags = tag_list.iter().map(|tp| tp.0.to_string()).collect();
     }
 
-    pub fn from_uuid(&self, uuid: &str) -> Option<&Post> {
+    fn sort_by_frequency(h: &HashMap::<String, u32>) -> Vec<(&str, u32)> {
+        let mut freq_list: Vec<(&str, u32)> = vec![];
+        for (k, v) in h.iter() {
+            freq_list.push((k.as_str(), *v));
+        }
+
+        freq_list.sort_by(|a, b| {
+            let (_, count_a) = a;
+            let (_, count_b) = b;
+            match count_a.cmp(count_b) {
+                Ordering::Less => Ordering::Greater,
+                Ordering::Equal => Ordering::Equal,
+                Ordering::Greater => Ordering::Less,
+            }
+        });
+
+        freq_list
+    }
+
+
+    pub fn with_uuid(&self, uuid: &str) -> Option<&Post> {
         match self.posts.get(uuid) {
             None => None,
             Some(post_item) => Some(&post_item.post)
         }
     }
 
-    pub fn from_link(&self, link: &str) -> Option<&Post> {
+    pub fn with_link(&self, link: &str) -> Option<&Post> {
         match self.link_to_uuid.get(link) {
-            Some(uuid) => self.from_uuid(uuid),
+            Some(uuid) => self.with_uuid(uuid),
             None => None,
         }
+    }
+
+    pub fn post_list(&self) -> &Vec<(NaiveDateTime, String)> {
+        &self.post_list
+    }
+
+    pub fn posts(&self) -> &HashMap<String, PostItem> {
+        &self.posts
+    }
+
+    pub fn tags(&self) -> &Vec<String> {
+        &self.tags
     }
 }
 
@@ -101,6 +151,28 @@ mod tests {
     use crate::post::Header;
     use crate::text_utils::parse_date_time;
     use super::*;
+
+    #[test]
+    fn test_map() {
+        let mut cache = HashMap::<String, u32>::new();
+
+        for c in "abcdefghijklkmno".chars() {
+            *cache.entry(format!("{}", c)).or_insert(0) += 1;
+        }
+        for c in "fghijk".chars() {
+            *cache.entry(format!("{}", c)).or_insert(0) += 1;
+        }
+        for c in "hihi".chars() {
+            *cache.entry(format!("{}", c)).or_insert(0) += 1;
+        }
+
+        let res = PostCache::sort_by_frequency(&cache);
+        assert_eq!(res, vec![
+            ("h", 4), ("i", 4), ("k", 3), ("f", 2), ("g", 2), ("j", 2),
+            ("a", 1), ("l", 1), ("o", 1), ("b", 1), ("m", 1), ("d", 1),
+            ("e", 1), ("n", 1), ("c", 1)]
+        );
+    }
 
     #[test]
     fn test_extract_link() {
@@ -119,6 +191,7 @@ mod tests {
                 id: "cbca23f4-9cb9-11ea-a1df-83d8f0a5e3cb".to_string(),
                 date: parse_date_time("2020-05-22 10:54:25.000").unwrap(),
                 author: "thiago".to_string(),
+                tags: vec!["codereview".to_string()],
             },
             title: "How to write a Code Review".to_string(),
             content: "There is always those quite obvious things such as don't be a jerk. Those are not the ones I will be talking now.".to_string(),
@@ -129,6 +202,7 @@ mod tests {
                 id: "a63bd715-a3fe-4788-b0e1-2a3153778544".to_string(),
                 date: parse_date_time("2022-04-02 12:05:00.000").unwrap(),
                 author: "thiago".to_string(),
+                tags: vec![],
             },
             title: "What I learned after 20+ years of software development".to_string(),
             content: "How to be a great software engineer?\n\nSomeone asked me this question today and I didn’t have an answer".to_string(),

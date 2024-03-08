@@ -6,6 +6,11 @@
 <body>
     <h1>Welcome!</h1>
 
+    Tags:
+    {{#tags}}
+    <a href="/list/{{tag}}/">#{{tag}}</a>
+    {{/tags}}
+
     {{#post_list}}
         <p>{{date}} {{time}}</p>
         <h3><a href='{{link}}'>{{title}}</a></h3>
