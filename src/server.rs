@@ -1,58 +1,13 @@
 use std::io;
-use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
-use chrono::{Datelike, Utc};
-use ntex::http::Response;
 
 use ntex::web;
-use ntex::web::{Error, HttpRequest};
+use ntex::web::HttpRequest;
 use ntex_files::NamedFile;
-use ramhorns::{Content, Template};
 use crate::config::Config;
-use crate::post::Post;
 use crate::post_cache::PostCache;
-use crate::post_list::PostList;
-use crate::post_render::render_post;
-use crate::text_utils::format_date_time;
-
-#[derive(Content)]
-struct IndexPage {
-    years_developing: i64,
-    post_count: i64,
-    days_since_started: i64,
-}
-
-#[derive(Content)]
-struct ListPage<'a> {
-    post_list: Vec<PostItem>,
-    tags: Vec<ViewTag<'a>>,
-}
-
-#[derive(Content)]
-struct PostItem {
-    date: String,
-    time: String,
-    link: String,
-    title: String,
-    summary: String,
-}
-
-#[derive(Content)]
-struct ViewItem<'a> {
-    errors: Vec<String>,
-    id: &'a str,
-    author: &'a str,
-    tags: &'a Vec<ViewTag<'a>>,
-    date: &'a str,
-    time: &'a str,
-    post_title: &'a str,
-    post_content: &'a str,
-}
-
-#[derive(Content)]
-struct ViewTag<'a> {
-    tag: &'a str,
-}
+use crate::post_processor::*;
+use crate::query_string::QueryString;
 
 struct AppState {
     activity_start_year: i32,
@@ -60,204 +15,6 @@ struct AppState {
     pages: PostCache,
     config: Config,
 }
-
-fn get_posts(root_dir: &PathBuf, post_file: &str) -> io::Result<Vec<Post>> {
-    let root_dir = root_dir.clone();
-    let post_list = PostList {
-        root_dir,
-        post_file: post_file.to_string(),
-    };
-
-    let dirs = post_list.retrieve_dirs()?;
-    let mut posts = vec![];
-    for dir in dirs.as_slice() {
-        let p = dir.join(&post_list.post_file);
-        let post = Post::from(&p, true)?;
-        posts.push(post);
-    }
-
-    // Retrieve files in post directory
-    let md_posts: Vec<PathBuf> = post_list.retrieve_files()?;
-    for post_file in md_posts {
-        let post = Post::from(&post_file, true)?;
-        posts.push(post);
-    }
-
-    Ok(posts)
-}
-
-fn process_post(path: String, template_dir: &PathBuf, template_name: &str, posts: &PostCache) -> Result<Response, Response> {
-    let view_tpl_src: String = match read_template(template_dir, template_name) {
-        Ok(s) => s,
-        Err(e) => {
-            return Err(web::HttpResponse::InternalServerError()
-                .body(format!("Error loading post view template: {}", e)));
-        }
-    };
-
-    // TODO: Cache renderer?
-    let view_tpl = match Template::new(view_tpl_src) {
-        Ok(x) => x,
-        Err(e) => {
-            return Err(web::HttpResponse::InternalServerError()
-                .body(format!("Error parsing post view template: {}", e)));
-        }
-    };
-
-    let post_summary = match posts.with_link(&path) {
-        Some(post) => post,
-        None => return Err(web::HttpResponse::InternalServerError()
-            .body(format!("Error loading post with link: {}", &path))),
-    };
-
-    let post = match Post::from(&post_summary.header.file_name, false) {
-        Ok(post) => post,
-        Err(e) => {
-            return Err(web::HttpResponse::InternalServerError()
-                .body(format!("Error loading post content: {}", e)));
-        }
-    };
-
-    let html = match render_post(&post.content, None) {
-        Ok(post) => post,
-        Err(e) => {
-            return Err(web::HttpResponse::InternalServerError()
-                .body(format!("Error rendering post content: {}", e)));
-        }
-    };
-
-    let (date, time) = format_date_time(&post.header.date);
-
-    let ref tags: Vec<ViewTag> = post.header.tags.iter().map(|t| ViewTag { tag: t.as_str() }).collect();
-
-    let rendered = view_tpl.render(&ViewItem {
-        errors: vec![],
-        id: post.header.id.as_str(),
-        author: post.header.author.as_str(),
-        tags,
-        date: date.as_str(),
-        time: time.as_str(),
-        post_title: post.title.as_str(),
-        post_content: html.as_str(),
-    });
-
-    Ok(web::HttpResponse::Ok()
-        .content_type("text/html; charset=utf-8")
-        .body(&rendered))
-}
-
-fn list_posts(tpl_dir: &PathBuf, cache: &PostCache, tag: Option<String>) -> Result<String, String> {
-    let list_tpl_src: String = match read_template(tpl_dir, "postlist.tpl") {
-        Ok(s) => s,
-        Err(e) => {
-            return Err(format!("Error loading postlist template: {}", e));
-        }
-    };
-
-    let list_tpl = match Template::new(list_tpl_src) {
-        Ok(x) => x,
-        Err(e) => {
-            return Err(format!("Error parsing postlist template: {}", e));
-        }
-    };
-
-    // TODO: Implement multiple readers, single writer or remove lock
-    let mut post_list = vec![];
-    {
-        for (_, uuid) in cache.post_list().iter() {
-            let post_item = cache.posts().get(uuid.as_str()).unwrap();
-            let post_link = format!("/view/{}/", post_item.link);
-            let post = &post_item.post;
-
-            // TODO: This is not efficient when we have a long list of items. Needs improvement in the future
-            if let Some(ref tag) = tag {
-                if !post.header.tags.contains(tag) {
-                    continue;
-                }
-            }
-
-
-            let html = match render_post(post.content.as_str(), Some(post_link.as_str())) {
-                Ok(html) => html,
-                Err(e) => return Err(format!("Error rendering post: {}", e)),
-            };
-
-            let (date, time) = format_date_time(&post.header.date);
-            let post_item = PostItem {
-                date: date.to_string(),
-                time: time.to_string(),
-                link: post_link,
-                title: post.title.clone(),
-                summary: html,
-            };
-            post_list.push(post_item);
-        }
-    }
-
-    let tags = cache.tags().iter().map(|t| ViewTag { tag: t.as_str() }).collect();
-    let rendered = list_tpl.render(&ListPage {
-        post_list,
-        tags,
-    });
-    Ok(rendered)
-}
-
-fn read_template(tpl_dir: &PathBuf, file_name: &str) -> Result<String, io::Error> {
-    let full_path = tpl_dir.join(file_name);
-    std::fs::read_to_string(full_path)
-}
-
-fn get_file(root_dir: &PathBuf, post: String, file: String) -> Result<NamedFile, Error> {
-    if post.contains("../") || file.contains("../") {
-        return Err(web::error::ErrorUnauthorized("Access forbidden").into());
-    }
-
-    let file_path = root_dir.join(post).join(file);
-    Ok(NamedFile::open(file_path)?)
-}
-
-fn render_index(req: HttpRequest, cache: &&PostCache, tpl_dir: &PathBuf, activity_start_year: i32) -> Result<String, String> {
-    let index_tpl_src: String = match read_template(tpl_dir, "index.tpl") {
-        Ok(s) => s,
-        Err(e) => {
-            return Err(format!("Error loading index template: {}", e));
-        }
-    };
-
-    let index_tpl = match Template::new(index_tpl_src) {
-        Ok(x) => x,
-        Err(e) => {
-            return Err(format!("Error parsing index template: {}", e));
-        }
-    };
-
-
-    let days_since_first_post = if cache.post_list().is_empty() {
-        0
-    } else {
-        let (date, _) = cache.post_list().last().unwrap();
-        let res = Utc::now().naive_utc().signed_duration_since(date.clone());
-        res.num_days()
-    };
-    let years_developing = (Utc::now().year() - activity_start_year) as i64;
-
-    let rendered = index_tpl.render(&IndexPage {
-        years_developing,
-        post_count: cache.posts().len() as i64,
-        days_since_started: days_since_first_post,
-    });
-
-    let mut referer: String = match req.headers().get("referer") {
-        Some(v) => v.to_str().unwrap().to_string(),
-        None => "http://sei-la/".to_string(),
-    };
-
-    if !referer.ends_with("/") {
-        referer += "/";
-    }
-    Ok(rendered)
-}
-
 
 // Begin: Redirect region --------
 #[web::get("/view/{post}")]
@@ -278,9 +35,7 @@ async fn page_wo_slash(path: web::types::Path<String>) -> web::HttpResponse {
 // End: Redirect region --------
 
 #[web::get("/page/{page}/")]
-async fn page(path: web::types::Path<String>,
-              state: web::types::State<Arc<Mutex<AppState>>>,
-) -> web::HttpResponse {
+async fn page(path: web::types::Path<String>, state: web::types::State<Arc<Mutex<AppState>>>) -> web::HttpResponse {
     let state = state.lock().unwrap();
     let template_dir = &state.config.paths.template_dir;
     let posts: &PostCache = &state.pages;
@@ -293,9 +48,7 @@ async fn page(path: web::types::Path<String>,
 }
 
 #[web::get("/view/{post}/")]
-async fn view(path: web::types::Path<String>,
-              state: web::types::State<Arc<Mutex<AppState>>>,
-) -> web::HttpResponse {
+async fn view(path: web::types::Path<String>, state: web::types::State<Arc<Mutex<AppState>>>) -> web::HttpResponse {
     let state = state.lock().unwrap();
     let template_dir = &state.config.paths.template_dir;
     let posts: &PostCache = &state.posts;
@@ -308,12 +61,21 @@ async fn view(path: web::types::Path<String>,
 }
 
 #[web::get("/list")]
-async fn list(state: web::types::State<Arc<Mutex<AppState>>>) -> web::HttpResponse {
+async fn list(req: HttpRequest, state: web::types::State<Arc<Mutex<AppState>>>) -> web::HttpResponse {
     let state = &state.lock().unwrap();
     let tpl_dir = &state.config.paths.template_dir;
     let cache = &state.posts;
 
-    let response = match list_posts(tpl_dir, cache, None) {
+    // TODO - Thiago: Make page_size configurable
+    let page_size: u32 = 10;
+    let cur_page: u32 = if let Some(query_str) = req.uri().query() {
+        let qs = QueryString::from(query_str);
+        qs.get_page()
+    } else {
+        1
+    };
+
+    let response = match list_posts(tpl_dir, cache, None, cur_page, page_size) {
         Ok(body) => web::HttpResponse::Ok()
             .content_type("text/html; charset=utf-8")
             .body(body),
@@ -325,15 +87,14 @@ async fn list(state: web::types::State<Arc<Mutex<AppState>>>) -> web::HttpRespon
 }
 
 #[web::get("/list/{tag}/")]
-async fn list_with_tags(
-    path: web::types::Path<String>,
-    state: web::types::State<Arc<Mutex<AppState>>>) -> web::HttpResponse {
+async fn list_with_tags(path: web::types::Path<String>, state: web::types::State<Arc<Mutex<AppState>>>) -> web::HttpResponse {
     let state = &state.lock().unwrap();
     let tpl_dir = &state.config.paths.template_dir;
     let cache = &state.posts;
     let tag = path.into_inner();
 
-    let response = match list_posts(tpl_dir, cache, Some(tag)) {
+    // For now, we don't support pagination when tags are used
+    let response = match list_posts(tpl_dir, cache, Some(tag), 1, cache.posts().len() as u32) {
         Ok(body) => web::HttpResponse::Ok()
             .content_type("text/html; charset=utf-8")
             .body(body),
@@ -345,18 +106,14 @@ async fn list_with_tags(
 }
 
 #[web::get("/view/{post}/{file}")]
-async fn post_files(path: web::types::Path<(String, String)>,
-                    state: web::types::State<Arc<Mutex<AppState>>>,
-) -> Result<NamedFile, web::Error> {
+async fn post_files(path: web::types::Path<(String, String)>, state: web::types::State<Arc<Mutex<AppState>>>) -> Result<NamedFile, web::Error> {
     let (post, file) = path.into_inner();
     let state = state.lock().unwrap();
     get_file(&state.config.paths.posts_dir, post, file)
 }
 
 #[web::get("/page/{post}/{file}")]
-async fn page_files(path: web::types::Path<(String, String)>,
-                    state: web::types::State<Arc<Mutex<AppState>>>,
-) -> Result<NamedFile, web::Error> {
+async fn page_files(path: web::types::Path<(String, String)>, state: web::types::State<Arc<Mutex<AppState>>>) -> Result<NamedFile, web::Error> {
     let (post, file) = path.into_inner();
     let state = state.lock().unwrap();
     get_file(&state.config.paths.pages_dir, post, file)
