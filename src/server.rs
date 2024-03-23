@@ -65,9 +65,8 @@ async fn list(req: HttpRequest, state: web::types::State<Arc<Mutex<AppState>>>) 
     let state = &state.lock().unwrap();
     let tpl_dir = &state.config.paths.template_dir;
     let cache = &state.posts;
+    let page_size: u32 = state.config.defaults.page_size;
 
-    // TODO - Thiago: Make page_size configurable
-    let page_size: u32 = 10;
     let cur_page: u32 = if let Some(query_str) = req.uri().query() {
         let qs = QueryString::from(query_str);
         qs.get_page()

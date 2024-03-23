@@ -169,8 +169,6 @@ pub fn list_posts(tpl_dir: &PathBuf, cache: &PostCache, tag: Option<String>, cur
         x => x,
     };
 
-    // TODO: Implement pagination for tags or remove if tag is selected
-
     {
         for (_, uuid) in paginator.get_page(cur_page)? {
             let post_item = cache.posts().get(uuid.as_str()).unwrap();

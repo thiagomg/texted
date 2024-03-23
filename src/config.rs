@@ -19,6 +19,7 @@ pub struct Personal {
 #[derive(Deserialize)]
 pub struct Defaults {
     pub index_file_name: String,
+    pub page_size: u32,
 }
 
 #[derive(Deserialize)]

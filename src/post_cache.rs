@@ -12,6 +12,7 @@ pub struct PostItem {
 }
 
 pub struct PostCache {
+    // TODO: Create a struct tuple uuid
     // UUID, post
     posts: HashMap<String, PostItem>,
 
@@ -115,7 +116,6 @@ impl PostCache {
 
         freq_list
     }
-
 
     pub fn with_uuid(&self, uuid: &str) -> Option<&Post> {
         match self.posts.get(uuid) {
