@@ -17,5 +17,21 @@
         <span>{{{summary}}}</span>
         <hr />
     {{/post_list}}
+
+    {{#show_pagination}}
+    <div>
+    Pages:
+    {{#page_list}}
+      {{#current}}
+        {{number}}
+      {{/current}}
+      {{^current}}
+        <a href="?page={{number}}">{{number}}</a>
+      {{/current}}
+    {{/page_list}}
+    </div>
+    {{/show_pagination}}
+
+
 </body>
 </html>

@@ -16,6 +16,7 @@ pages_dir = "pages"
 # Default file name if using directory instead of files
 [defaults]
 index_file_name = "index.md"
+page_size = 10
 
 [server]
 address = "0.0.0.0"
