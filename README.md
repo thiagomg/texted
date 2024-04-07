@@ -1,3 +1,6 @@
+  <a href="https://gitlab.com/thiagomg/texted2"><img height="100%"
+   src="https://gitlab.com/thiagomg/texted2/-/raw/62124a2716d0f702f42d2700788c6528e71f6af1/Texted-logo.png"></a>
+
 # Texted 2 - Free your text!
 
 Why did I create one blog system instead of using some existing blog platform?
@@ -68,13 +71,13 @@ Let's say your server is running in your local host, port 8080 (127.0.0.1:8080) 
 
 File posts are text-only posts (or posts without local images). The file name will be used as url. E.g.
 
-The file post/post_without_images.md will be accesible using the url http://127.0.0.1:8080/view/post_without_images
+The file `post/post_without_images.md` will be accesible using the url `http://127.0.0.1:8080/view/post_without_images`
 
 ### Directory posts
 
-Directories containing a file index.md (configurable in the file texted.toml), will be treated as a post. E.g.
+Directories containing a file `index.md` (configurable in the file `texted.toml`), will be treated as a post. E.g.
 
-The directory post/post_with_image will be accesible using the url http://127.0.0.1:8080/view/post_with_image
+The directory `post/post_with_image` will be accesible using the url `http://127.0.0.1:8080/view/post_with_image`
 
 ## Structure of a post
 
@@ -96,7 +99,7 @@ Everything after that is the body of the post
 
 In the post list, what is presented is a part of the post body. To determine when it stops, you add the `<!-- more -->` tag.
 
-See post_without_images.md or post_with_image/index.md for an example
+See `post_without_images.md` or `post_with_image/index.md` for an example
 
 ### Tip
 
