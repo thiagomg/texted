@@ -58,8 +58,37 @@ impl Post {
         let mut content: String;
 
         let mut maybe_line = lines.next();
+
+        // Skip optional HTML comment in the beginning
+        let mut start_with_comment = false;
+
         loop {
             if let Some(line) = maybe_line {
+                let line = line.trim();
+
+                // Empty lines are ok
+                if line.is_empty() {
+                    maybe_line = lines.next();
+                    continue;
+                }
+
+                if line == "<!--" {
+                    maybe_line = lines.next();
+                    start_with_comment = true;
+                }
+                break;
+            } else {
+                break;
+            }
+        }
+
+        loop {
+            if let Some(line) = maybe_line {
+                if line.is_empty() {
+                    maybe_line = lines.next();
+                    continue;
+                }
+
                 let (key, val) = match Self::extract_header(line) {
                     None => break,
                     Some((k, v)) => (k, v),
@@ -72,8 +101,33 @@ impl Post {
                     "TAGS" => tags = val.to_string(),
                     _ => {}
                 }
+            } else {
+                break;
             }
             maybe_line = lines.next();
+        }
+
+        if start_with_comment {
+            // Let's find the end of the comment
+            loop {
+                if let Some(line) = maybe_line {
+                    let line = line.trim();
+
+                    // Empty lines are ok.
+                    if line.is_empty() {
+                        maybe_line = lines.next();
+                        continue;
+                    }
+
+                    if line == "-->" {
+                        break;
+                    }
+                } else {
+                    panic!("End of comment in the header is missing - file={}", file_name.to_str().unwrap());
+                }
+
+                maybe_line = lines.next();
+            }
         }
 
         // After the header, comes the title
