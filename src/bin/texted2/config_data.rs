@@ -8,8 +8,8 @@ activity_start_year = 2000
 # For the file locations, If you want it to be relative to the executable directory
 # use ${exe_dir}/location
 [paths]
-template_dir = "res/template"
-public_dir = "res/public"
+template_dir = "template"
+public_dir = "public"
 posts_dir = "posts"
 pages_dir = "pages"
 

@@ -25,7 +25,7 @@ pub fn remove_comments(md_post: &str) -> io::Result<String> {
                             return Err(io::Error::new(
                                 io::ErrorKind::InvalidData,
                                 "Error finding end of comment",
-                            ))
+                            ));
                         }
                     };
 

@@ -1,0 +1,120 @@
+* {
+    box-sizing: border-box;
+}
+
+/* Add a gray background color with some padding */
+body {
+    font-family: Arial;
+    font-size: larger;
+    padding: 5px;
+    background: #dddddd;
+}
+
+.avatar2 {
+  display: none;
+}
+
+#mini-bio {
+  display: none;
+}
+
+/* Header/Blog Title */
+.header {
+    padding: 10px;
+    font-size: x-large;
+    font-weight: bold;
+    text-align: left;
+    background: #515151;
+    color: white;
+}
+
+.header a {
+  color: white;
+  font-weight: bold;
+}
+/* Create two unequal columns that floats next to each other */
+/* Left column */
+.leftcolumn {   
+    float: left;
+    width: 75%;
+}
+
+/* Right column */
+.rightcolumn {
+    float: left;
+    width: 25%;
+    padding-left: 20px;
+}
+
+/* Add a card effect for articles */
+.card {
+    background-color: white;
+    padding: 20px;
+    margin-top: 20px;
+}
+
+.card pre {
+  overflow: auto;
+}
+
+/* Clear floats after the columns */
+.row:after {
+    content: "";
+    display: table;
+    clear: both;
+}
+
+/* Footer */
+.footer {
+    padding: 20px;
+    text-align: center;
+    background: #ddd;
+    margin-top: 20px;
+}
+
+.avatar {
+    float: right;
+    margin: 10px 10px 0px 0px;
+}
+
+.card img {
+    max-width: 80%;
+    max-height: 80%;
+}
+
+.card h2 {
+  margin-top: 0px;
+  margin-bottom: 2px;
+}
+
+.card h5 {
+  margin-top: 0px;
+  color: #646464;
+}
+
+/* Responsive layout - when the screen is less than 800px wide, make the two columns stack on top of each other instead of next to each other */
+@media screen and (max-width: 800px) {
+  body {
+    font-size: initial;
+  }
+  
+  .leftcolumn, .rightcolumn {   
+    width: 100%;
+    padding: 0;
+  }
+
+  .avatar2 {
+    display: flex;
+    float: right;
+    margin: 10px 10px 0px 20px;
+  }
+
+  #mini-bio {
+    display: block;
+  }
+
+  #bio {
+    display: none;
+  }
+
+}
