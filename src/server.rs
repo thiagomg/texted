@@ -1,4 +1,4 @@
-use std::io;
+use std::{env, io};
 use std::sync::{Arc, Mutex};
 
 use ntex::web;
@@ -153,14 +153,26 @@ pub async fn server_run(config: Config) -> io::Result<()> {
     let md_posts = match get_posts(&config.paths.posts_dir, config.defaults.index_file_name.as_str()) {
         Ok(posts) => posts,
         Err(err) => {
-            return Err(io::Error::new(io::ErrorKind::InvalidData, format!("Error retrieving post list template: {}. Dir={}", err, config.paths.posts_dir.to_str().unwrap())));
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidData,
+                format!("Error retrieving post list template: {}. Dir={}. CurDir={}",
+                        err,
+                        config.paths.posts_dir.to_str().unwrap(),
+                        env::current_dir().unwrap().to_str().unwrap()
+                )));
         }
     };
 
     let md_pages = match get_posts(&config.paths.pages_dir, config.defaults.index_file_name.as_str()) {
         Ok(posts) => posts,
         Err(err) => {
-            return Err(io::Error::new(io::ErrorKind::InvalidData, format!("Error retrieving post list template: {}. Dir={}", err, config.paths.posts_dir.to_str().unwrap())));
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidData,
+                format!("Error retrieving post list template: {}. Dir={}. CurDir={}",
+                        err,
+                        config.paths.posts_dir.to_str().unwrap(),
+                        env::current_dir().unwrap().to_str().unwrap()
+                )));
         }
     };
 
