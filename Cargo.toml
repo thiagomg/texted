@@ -12,9 +12,9 @@ description = "A markdown blog platform that lets you in control of your data"
 
 [dependencies]
 ntex = { version = "1.0", features = ["tokio"] }
-ntex-files = "0.4.1"
+ntex-files = "1.0.0"
 serde = "1"
-ramhorns = "0.14.0"
+ramhorns = "1.0.0"
 lazy_static = { version = "1.4.0", features = [] }
 regex = "1.10"
 markdown = "1.0.0-alpha.16"

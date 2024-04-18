@@ -1,17 +1,24 @@
-use std::io;
+use std::{fs, io};
+use std::collections::HashMap;
 use std::path::PathBuf;
+
 use chrono::{Datelike, Utc};
-use ntex::http::Response;
 use ntex::web;
 use ntex::web::{Error, HttpRequest};
 use ntex_files::NamedFile;
 use ramhorns::{Content, Template};
+
+use crate::config::Config;
+use crate::content::content_file::ContentFile;
+use crate::content::content_renderer::{ContentRenderer, RenderOptions};
+use crate::content::html_renderer::HtmlRenderer;
+use crate::content::texted_renderer::TextedRenderer;
 use crate::paginator::Paginator;
-use crate::post::Post;
+use crate::post::{ContentFormat, Post};
 use crate::post_cache::PostCache;
 use crate::post_list::PostList;
-use crate::post_render::render_post;
 use crate::text_utils::format_date_time;
+use crate::view::post_renderer::PostRenderer;
 
 #[derive(Content)]
 struct IndexPage {
@@ -60,6 +67,46 @@ struct ViewPagination {
     number: u32,
 }
 
+#[derive(Debug)]
+pub struct PostLink {
+    pub post_name: String,
+    pub post_path: PathBuf,
+}
+
+pub fn list_post_files(root_dir: &PathBuf, post_file: &str) -> io::Result<Vec<PostLink>> {
+    let root_dir = root_dir.clone();
+    let post_list = PostList {
+        root_dir,
+        post_file: post_file.to_string(),
+    };
+
+    let dirs = post_list.retrieve_dirs()?;
+    let mut posts = vec![];
+    for (dir, file_name) in dirs {
+        // Adding default file to directory posts
+        let post_name = dir.iter().last().unwrap().to_str().unwrap().to_string();
+        let post_path = dir.join(file_name);
+
+        posts.push(PostLink {
+            post_name,
+            post_path,
+        });
+    }
+
+    // Retrieve files in post directory
+    let md_posts: Vec<PathBuf> = post_list.retrieve_files()?;
+    for post_file in md_posts {
+        let post_name = post_file.file_stem().unwrap().to_str().unwrap().to_string();
+        let post_path = post_file;
+        posts.push(PostLink {
+            post_name,
+            post_path,
+        });
+    }
+
+    Ok(posts)
+}
+
 pub fn get_posts(root_dir: &PathBuf, post_file: &str) -> io::Result<Vec<Post>> {
     let root_dir = root_dir.clone();
     let post_list = PostList {
@@ -69,8 +116,8 @@ pub fn get_posts(root_dir: &PathBuf, post_file: &str) -> io::Result<Vec<Post>> {
 
     let dirs = post_list.retrieve_dirs()?;
     let mut posts = vec![];
-    for dir in dirs.as_slice() {
-        let p = dir.join(&post_list.post_file);
+    for (dir, file_name) in dirs.as_slice() {
+        let p = dir.join(&file_name);
         let post = Post::from(&p, true)?;
         posts.push(post);
     }
@@ -85,65 +132,57 @@ pub fn get_posts(root_dir: &PathBuf, post_file: &str) -> io::Result<Vec<Post>> {
     Ok(posts)
 }
 
-pub fn process_post(path: String, template_dir: &PathBuf, template_name: &str, posts: &PostCache) -> Result<Response, Response> {
-    let view_tpl_src: String = match read_template(template_dir, template_name) {
-        Ok(s) => s,
-        Err(e) => {
-            return Err(web::HttpResponse::InternalServerError()
-                .body(format!("Error loading post view template: {}", e)));
-        }
-    };
-
-    // TODO: Cache renderer?
-    let view_tpl = match Template::new(view_tpl_src) {
-        Ok(x) => x,
-        Err(e) => {
-            return Err(web::HttpResponse::InternalServerError()
-                .body(format!("Error parsing post view template: {}", e)));
-        }
-    };
-
-    let post_summary = match posts.with_link(&path) {
-        Some(post) => post,
-        None => return Err(web::HttpResponse::InternalServerError()
-            .body(format!("Error loading post with link: {}", &path))),
-    };
-
-    let post = match Post::from(&post_summary.header.file_name, false) {
-        Ok(post) => post,
-        Err(e) => {
-            return Err(web::HttpResponse::InternalServerError()
-                .body(format!("Error loading post content: {}", e)));
-        }
-    };
-
-    let html = match render_post(&post.content, None) {
-        Ok(post) => post,
-        Err(e) => {
-            return Err(web::HttpResponse::InternalServerError()
-                .body(format!("Error rendering post content: {}", e)));
-        }
-    };
-
-    let (date, time) = format_date_time(&post.header.date);
-
-    let ref tags: Vec<ViewTag> = post.header.tags.iter().map(|t| ViewTag { tag: t.as_str() }).collect();
-
-    let rendered = view_tpl.render(&ViewItem {
-        errors: vec![],
-        id: post.header.id.as_str(),
-        author: post.header.author.as_str(),
-        tags,
-        date: date.as_str(),
-        time: time.as_str(),
-        post_title: post.title.as_str(),
-        post_content: html.as_str(),
-    });
-
-    Ok(web::HttpResponse::Ok()
-        .content_type("text/html; charset=utf-8")
-        .body(&rendered))
-}
+// pub fn process_post(path: String, template_dir: &PathBuf, template_name: &str, cache: &PostCache) -> Result<Response, Response> {
+//     let view_tpl_src: String = match read_template(template_dir, template_name) {
+//         Ok(s) => s,
+//         Err(e) => {
+//             return Err(web::HttpResponse::InternalServerError()
+//                 .body(format!("Error loading post view template: {}", e)));
+//         }
+//     };
+//
+//     // TODO: Cache renderer?
+//     let view_tpl = match Template::new(view_tpl_src) {
+//         Ok(x) => x,
+//         Err(e) => {
+//             return Err(web::HttpResponse::InternalServerError()
+//                 .body(format!("Error parsing post view template: {}", e)));
+//         }
+//     };
+//
+//     let post_summary = match cache.with_link(&path) {
+//         Some(post) => post,
+//         None => return Err(web::HttpResponse::InternalServerError()
+//             .body(format!("Error loading post with link: {}", &path))),
+//     };
+//
+//     let post = match Post::from(&post_summary.header.file_name, false) {
+//         Ok(post) => post,
+//         Err(e) => {
+//             return Err(web::HttpResponse::InternalServerError()
+//                 .body(format!("Error loading post content: {}", e)));
+//         }
+//     };
+//
+//     let (date, time) = format_date_time(&post.header.date);
+//
+//     let ref tags: Vec<ViewTag> = post.header.tags.iter().map(|t| ViewTag { tag: t.as_str() }).collect();
+//
+//     let rendered = view_tpl.render(&ViewItem {
+//         errors: vec![],
+//         id: post.header.id.as_str(),
+//         author: post.header.author.as_str(),
+//         tags,
+//         date: date.as_str(),
+//         time: time.as_str(),
+//         post_title: post.title.as_str(),
+//         post_content: post.content.as_str(),
+//     });
+//
+//     Ok(web::HttpResponse::Ok()
+//         .content_type("text/html; charset=utf-8")
+//         .body(&rendered))
+// }
 
 pub fn list_posts(tpl_dir: &PathBuf, cache: &PostCache, tag: Option<String>, cur_page: u32, page_size: u32) -> Result<String, String> {
     let list_tpl_src: String = match read_template(tpl_dir, "postlist.tpl") {
@@ -171,7 +210,7 @@ pub fn list_posts(tpl_dir: &PathBuf, cache: &PostCache, tag: Option<String>, cur
 
     {
         for (_, uuid) in paginator.get_page(cur_page)? {
-            let post_item = cache.posts().get(uuid.as_str()).unwrap();
+            let post_item = cache.summaries().get(uuid).unwrap();
             let post_link = format!("/view/{}/", post_item.link);
             let post = &post_item.post;
 
@@ -182,18 +221,13 @@ pub fn list_posts(tpl_dir: &PathBuf, cache: &PostCache, tag: Option<String>, cur
                 }
             }
 
-            let html = match render_post(post.content.as_str(), Some(post_link.as_str())) {
-                Ok(html) => html,
-                Err(e) => return Err(format!("Error rendering post: {}", e)),
-            };
-
             let (date, time) = format_date_time(&post.header.date);
             let post_item = PostItem {
                 date: date.to_string(),
                 time: time.to_string(),
                 link: post_link,
                 title: post.title.clone(),
-                summary: html,
+                summary: post.content.clone(),
             };
             post_list.push(post_item);
         }
@@ -273,4 +307,37 @@ pub fn render_index(req: HttpRequest, cache: &&PostCache, tpl_dir: &PathBuf, act
         referer += "/";
     }
     Ok(rendered)
+}
+
+pub fn open_content(config: &Config, link_to_files: &HashMap<String, PathBuf>, template_filename: &str, link: &str) -> io::Result<String> {
+    let content_path = match link_to_files.get(link) {
+        None => return Err(io::Error::new(io::ErrorKind::NotFound, "Could not find post")),
+        Some(path) => path,
+    }.clone();
+
+    let content_file = ContentFile::from_file(link.to_string(), content_path)?;
+    let content = match content_file.format {
+        ContentFormat::Texted => TextedRenderer::render(&content_file, RenderOptions::FullContent),
+        ContentFormat::Html => HtmlRenderer::render(&content_file, RenderOptions::FullContent),
+    }?;
+
+    let template_dir = &config.paths.template_dir;
+    let template_path = template_dir.join(template_filename);
+    let template_src = fs::read_to_string(&template_path)?;
+
+    let post_renderer = PostRenderer::new(&template_src)?;
+    Ok(post_renderer.render(&content))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_extract_last() {
+        let posts = list_post_files(&PathBuf::from("res/posts"), "index.md").unwrap();
+        for post in posts {
+            println!("{:?}", &post);
+        }
+    }
 }

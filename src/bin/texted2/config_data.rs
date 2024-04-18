@@ -15,7 +15,7 @@ pages_dir = "pages"
 
 # Default file name if using directory instead of files
 [defaults]
-index_file_name = "index.md"
+index_base_name = "index"
 page_size = 10
 
 [server]

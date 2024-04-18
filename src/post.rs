@@ -1,27 +1,52 @@
 use fmt::Display;
-use std::fmt::Formatter;
 use std::{fmt, fs, io};
+use std::fmt::Formatter;
 use std::io::ErrorKind;
 use std::path::PathBuf;
 use std::str::Lines;
+
 use chrono::NaiveDateTime;
 use lazy_static::lazy_static;
 use regex::Regex;
+
 use crate::text_utils::parse_date_time;
 
-#[derive(Debug)]
+#[derive(Debug, Clone, PartialEq)]
+pub enum ContentFormat {
+    Texted,
+    Html,
+}
+
+#[derive(Debug, Clone, Eq, Hash, PartialEq)]
+pub struct PostId(pub String);
+
+#[derive(Debug, Clone)]
 pub struct Header {
     pub file_name: PathBuf,
-    pub id: String,
+    pub id: PostId,
     pub date: NaiveDateTime,
     pub author: String,
+    pub format: ContentFormat,
     pub tags: Vec<String>,
 }
 
+#[derive(Clone)]
 pub struct Post {
     pub header: Header,
     pub title: String,
     pub content: String,
+}
+
+impl PostId {
+    pub fn as_str(&self) -> &str {
+        self.0.as_str()
+    }
+}
+
+impl Display for PostId {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        write!(f, "{}", &self.0)
+    }
 }
 
 impl Display for Post {
@@ -51,7 +76,7 @@ impl Post {
 
     pub fn from_string(file_name: &PathBuf, content: &String, header_only: bool) -> io::Result<Post> {
         let (header, lines, maybe_line) = Self::parse_texted_header(file_name, content.lines())?;
-        let (title, lines, _title_line) = Self::parse_title(lines, maybe_line);
+        let (title, lines, _title_line) = Self::parse_title(&header.format, lines, maybe_line);
         let content = Self::parse_content(header_only, lines);
 
         Ok(Post {
@@ -83,6 +108,21 @@ impl Post {
         content
     }
 
+    fn file_format(file_name: &PathBuf) -> io::Result<ContentFormat> {
+        if let Some(ext) = file_name.extension() {
+            let format = match ext.to_ascii_lowercase().to_str().unwrap() {
+                "md" => ContentFormat::Texted,
+                "htm" | "html" => ContentFormat::Html,
+                _ => return Err(io::Error::new(
+                    ErrorKind::InvalidInput,
+                    format!("Could not extract the file extension of the file {}", file_name.to_str().unwrap()))),
+            };
+            Ok(format)
+        } else {
+            Err(io::Error::new(ErrorKind::InvalidInput, format!("Could not recognize the format of the file {}", file_name.to_str().unwrap())))
+        }
+    }
+
     fn parse_texted_header<'a>(file_name: &PathBuf, lines: Lines<'a>) -> io::Result<(Header, Lines<'a>, Option<&'a str>)> {
         let mut id: String = "".to_string();
         let mut date: String = "".to_string();
@@ -91,6 +131,8 @@ impl Post {
 
         let mut lines = lines.clone();
         let mut maybe_line = lines.next();
+
+        let format = Self::file_format(file_name)?;
 
         // Skip optional HTML comment in the beginning
         let mut start_with_comment = false;
@@ -165,7 +207,7 @@ impl Post {
 
 
         if id.is_empty() && date.is_empty() && author.is_empty() && tags.is_empty() {
-            return Err(io::Error::new(ErrorKind::InvalidData, format!("Invalid texted header")));
+            return Err(io::Error::new(ErrorKind::InvalidData, "Invalid texted header".to_string()));
         }
 
         let tags = Self::extract_tags(&tags);
@@ -178,16 +220,23 @@ impl Post {
 
         let header = Header {
             file_name: file_name.clone(),
-            id,
+            id: PostId(id),
             date,
             author,
+            format,
             tags,
         };
 
         Ok((header, lines, maybe_line))
     }
 
-    fn parse_title<'a>(lines: Lines<'a>, mut maybe_line: Option<&'a str>) -> (String, Lines<'a>, Option<&'a str>) {
+    fn parse_title<'a>(format: &ContentFormat, lines: Lines<'a>, maybe_line: Option<&'a str>) -> (String, Lines<'a>, Option<&'a str>) {
+        match format {
+            ContentFormat::Texted => Self::parse_title_markdown(lines, maybe_line),
+            ContentFormat::Html => Self::parse_title_html(lines, maybe_line),
+        }
+    }
+    fn parse_title_markdown<'a>(lines: Lines<'a>, mut maybe_line: Option<&'a str>) -> (String, Lines<'a>, Option<&'a str>) {
         let mut lines = lines;
         let title = loop {
             if let Some(line) = maybe_line {
@@ -204,21 +253,33 @@ impl Post {
         return (title, lines, maybe_line);
     }
 
-    fn extract_texted_header(line: &str) -> Option<(&str, &str)> {
+    fn parse_title_html<'a>(lines: Lines<'a>, mut maybe_line: Option<&'a str>) -> (String, Lines<'a>, Option<&'a str>) {
         lazy_static! {
-            static ref HEADER_REGEX : Regex = Regex::new(
-                r"\[(?P<key>\w+)\]: # \((?P<value>.+)\)"
+            static ref TITLE_REGEX : Regex = Regex::new(
+                r"<h[12]>(?P<title>.+)</h[12]>"
             ).unwrap();
-            //                 r"(?P<key>\w+): (?P<value>.+)"
         }
-        Self::extract_header(line, &HEADER_REGEX)
+
+        let mut lines = lines;
+        let title = loop {
+            if let Some(line) = maybe_line {
+                if let Some(title) = TITLE_REGEX.captures(line).and_then(|cap| {
+                    cap.name("title").map(|v| v.as_str())
+                }) {
+                    break title.to_string();
+                }
+            } else {
+                let title = "".to_string();
+                break title;
+            }
+            maybe_line = lines.next();
+        };
+        return (title, lines, maybe_line);
     }
 
-    fn extract_jekyll_header(line: &str) -> Option<(&str, &str)> {
+    fn extract_texted_header(line: &str) -> Option<(&str, &str)> {
         lazy_static! {
-            static ref HEADER_REGEX : Regex = Regex::new(
-                r"(?P<key>\w+): (?P<value>.+)"
-            ).unwrap();
+            static ref HEADER_REGEX : Regex = Regex::new(r"\[(?P<key>\w+)\]: # \((?P<value>.+)\)").unwrap();
         }
         Self::extract_header(line, &HEADER_REGEX)
     }
@@ -248,7 +309,8 @@ impl Post {
 
 #[cfg(test)]
 mod tests {
-    use crate::test_data::POST_DATA;
+    use crate::test_data::POST_DATA_MD;
+
     use super::*;
 
     #[test]
@@ -267,19 +329,9 @@ mod tests {
     }
 
     #[test]
-    fn test_extract_jekyll_header() {
-        let res = Post::extract_jekyll_header("layout: default");
-        assert_eq!(res, Some(("layout", "default")));
-        let res = Post::extract_jekyll_header("title: Hitbox");
-        assert_eq!(res, Some(("title", "Hitbox")));
-        let res = Post::extract_jekyll_header("parent: API Documentation");
-        assert_eq!(res, Some(("parent", "API Documentation")));
-    }
-
-    #[test]
     fn test_from_string() {
         let file_name = PathBuf::from("posts/20200522_how_to_write_a_code_review/index.md");
-        let post = Post::from_string(&file_name, &POST_DATA.to_string(), true).unwrap();
+        let post = Post::from_string(&file_name, &POST_DATA_MD.to_string(), true).unwrap();
         println!("{}", post);
         assert_eq!(post.content, r##"How to be a great software engineer?
 
@@ -300,7 +352,7 @@ I will divide this in parts, non-technical and technical
     }
 
     #[test]
-    fn test_lines() {
+    fn test_lines_texted() {
         let file_name = PathBuf::from("posts/20200522_how_to_write_a_code_review/index.md");
         let content = r##"
 
@@ -319,7 +371,7 @@ I will divide this in parts, non-technical and technical
     }
 
     #[test]
-    fn test_lines_2() {
+    fn test_lines_jenkyll() {
         let file_name = PathBuf::from("posts/20200522_how_to_write_a_code_review/index.md");
         let content = r##"
 ---
@@ -333,5 +385,17 @@ parent: API Documentation
 
         let result = Post::parse_texted_header(&file_name, content.lines());
         println!("{:?}", &result);
+    }
+
+    #[test]
+    fn test_parse_title_html() {
+        let content = r##"
+asdasdasd
+<h2>This is the title</h2>
+dsadsadasd
+"##;
+
+        let (title, _lines, _maybe_line) = Post::parse_title_html(content.lines(), Some(""));
+        println!("{}", title);
     }
 }

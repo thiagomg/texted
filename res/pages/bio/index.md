@@ -11,6 +11,8 @@ He attended the local public schools where he achieved average grades without st
 After graduating from high school, John pursued higher education at a community college, where he obtained a degree in general studies.
 Despite his efforts, he never discovered a particular passion or calling in any field of study.
 
+### And some formatting
+
 In terms of career, John has held various positions in different industries, from retail to customer service. 
 However, he has never found a job that truly resonated with him or allowed him to excel.
 
