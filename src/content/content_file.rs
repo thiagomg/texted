@@ -2,7 +2,7 @@ use std::{fs, io};
 use std::io::ErrorKind;
 use std::path::PathBuf;
 
-use crate::post::ContentFormat;
+use crate::content::content_format::ContentFormat;
 
 pub struct ContentFile {
     pub link: String,

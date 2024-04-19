@@ -5,9 +5,9 @@ use markdown::Options;
 
 use crate::content::Content;
 use crate::content::content_file::ContentFile;
+use crate::content::content_format::ContentFormat;
 use crate::content::content_renderer::RenderOptions;
 use crate::content::parsing_utils::{extract_content, parse_texted_header, parse_title_markdown, remove_comments};
-use crate::post::ContentFormat;
 
 pub struct TextedRenderer {}
 
@@ -110,6 +110,7 @@ mod tests {
     fn test_header_only() {
         let file_name = PathBuf::from("posts/20200522_how_to_write_a_code_review/index.md");
         let content = ContentFile {
+            link: "".to_string(),
             file_path: file_name,
             format: ContentFormat::Texted,
             raw_content: POST_DATA_MD.to_string(),
@@ -129,6 +130,7 @@ mod tests {
     fn test_full_content() {
         let file_name = PathBuf::from("posts/20200522_how_to_write_a_code_review/index.md");
         let content = ContentFile {
+            link: "".to_string(),
             file_path: file_name,
             format: ContentFormat::Texted,
             raw_content: POST_DATA_MD.to_string(),

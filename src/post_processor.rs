@@ -10,10 +10,10 @@ use ramhorns::{Content, Template};
 
 use crate::config::Config;
 use crate::content::content_file::ContentFile;
+use crate::content::content_format::ContentFormat;
 use crate::content::content_renderer::{ContentRenderer, RenderOptions};
 use crate::content::html_renderer::HtmlRenderer;
 use crate::content::texted_renderer::TextedRenderer;
-use crate::post::ContentFormat;
 use crate::post_list::PostList;
 use crate::view::post_renderer::PostRenderer;
 

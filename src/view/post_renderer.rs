@@ -46,7 +46,7 @@ impl PostRenderer<'_> {
         let (date, time) = format_date_time(&content.header.date);
         let rendered_page = self.template.render(&ViewItem {
             errors: vec![],
-            id: content.header.id.as_str(),
+            id: content.header.id.0.as_str(),
             author: content.header.author.as_str(),
             tags,
             date: date.as_str(),
@@ -65,9 +65,7 @@ mod tests {
 
     use chrono::{NaiveDate, NaiveDateTime, NaiveTime};
 
-    use crate::content::Content;
-    use crate::content::content_header::ContentHeader;
-    use crate::post::PostId;
+    use crate::content::{Content, ContentHeader, PostId};
     use crate::view::post_renderer::PostRenderer;
 
     #[test]
@@ -92,6 +90,7 @@ POST_CONTENT=[{{{post_content}}}]
                 author: "<Thiago>".to_string(),
                 tags: vec!["<rust>".to_string(), "programming".to_string()],
             },
+            link: "".to_string(),
             title: "<post-title>".to_string(),
             rendered: "<post-content>".to_string(),
         };

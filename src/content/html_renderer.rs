@@ -5,9 +5,9 @@ use regex::Regex;
 
 use crate::content::Content;
 use crate::content::content_file::ContentFile;
+use crate::content::content_format::ContentFormat;
 use crate::content::content_renderer::{ContentRenderer, ImagePrefix, RenderOptions};
 use crate::content::parsing_utils::{extract_content, parse_texted_header, parse_title_html};
-use crate::post::ContentFormat;
 
 pub struct HtmlRenderer {}
 
@@ -75,6 +75,7 @@ mod tests {
     fn test_full_content_html() {
         let file_name = PathBuf::from("posts/20200522_how_to_write_a_code_reviewindex.md");
         let content = ContentFile {
+            link: "".to_string(),
             file_path: file_name,
             format: ContentFormat::Html,
             raw_content: POST_DATA_HTML.to_string(),

@@ -10,11 +10,11 @@ use ntex_files::NamedFile;
 
 use crate::config::Config;
 use crate::content::content_file::ContentFile;
+use crate::content::content_format::ContentFormat;
 use crate::content::content_renderer::{ContentRenderer, ImagePrefix, RenderOptions};
 use crate::content::html_renderer::HtmlRenderer;
 use crate::content::texted_renderer::TextedRenderer;
 use crate::paginator::Paginator;
-use crate::post::ContentFormat;
 use crate::post_processor::*;
 use crate::query_string::QueryString;
 use crate::util::toml_date::TomlDate;

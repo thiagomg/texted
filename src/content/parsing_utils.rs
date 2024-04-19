@@ -6,9 +6,8 @@ use std::str::Lines;
 use lazy_static::lazy_static;
 use regex::Regex;
 
-use crate::content::content_header::ContentHeader;
+use crate::content::{ContentHeader, PostId};
 use crate::content::content_renderer::RenderOptions;
-use crate::post::PostId;
 use crate::text_utils::parse_date_time;
 
 pub fn parse_texted_header<'a>(file_name: &PathBuf, lines: Lines<'a>) -> io::Result<(ContentHeader, Lines<'a>, Option<&'a str>)> {
@@ -255,6 +254,8 @@ pub fn remove_comments(md_post: &str) -> io::Result<String> {
 
 #[cfg(test)]
 mod tests {
+    use chrono::{NaiveDate, NaiveDateTime, NaiveTime};
+
     use super::*;
 
     #[test]
@@ -294,8 +295,17 @@ mod tests {
 
 -->        "##;
 
-        let (header, lines, next_line) = parse_texted_header(&file_name, content.lines()).unwrap();
-        println!("{:?}", &header);
+        let (header, _lines, _next_line) = parse_texted_header(&file_name, content.lines()).unwrap();
+        let date = NaiveDate::from_ymd_opt(2024, 02, 12).unwrap();
+        let time = NaiveTime::from_hms_opt(22, 54, 00).unwrap();
+        let expected = ContentHeader {
+            file_name: PathBuf::from("posts/20200522_how_to_write_a_code_review/index.md"),
+            id: PostId("21c1e9ad-4ebb-4168-a543-fbf77cc35a85".to_string()),
+            date: NaiveDateTime::new(date, time),
+            author: "thiago".to_string(),
+            tags: vec![],
+        };
+        assert_eq!(header, expected);
     }
 
     #[test]
