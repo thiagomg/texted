@@ -7,7 +7,7 @@ If you want to create a post with image, use the directory method
 
 Please open the post to see the image
 
-![](robot.webp)
+![](robot-small.png)
 
 <!-- more -->
 

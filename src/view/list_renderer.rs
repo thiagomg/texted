@@ -54,14 +54,14 @@ impl ListRenderer<'_> {
         })
     }
 
-    pub fn render(&self, contents: &[Content], cur_page: u32) -> String {
+    pub fn render(&self, contents: &[Content], cur_page: u32, tags: Vec<String>) -> String {
         let mut post_list = vec![];
         for content in contents {
             let (date, time) = format_date_time(&content.header.date);
             let post_item = PostItem {
                 date,
                 time,
-                link: format!("view/{}", &content.link),
+                link: format!("/view/{}", &content.link),
                 title: content.title.clone(),
                 summary: content.rendered.clone(),
             };
@@ -77,9 +77,10 @@ impl ListRenderer<'_> {
             })
         }
 
+        let tags: Vec<_> = tags.iter().map(|t| ViewTag { tag: t.as_str() }).collect();
         let rendered = self.template.render(&ListPage {
             post_list,
-            tags: vec![],
+            tags,
             page_list,
             show_pagination: true,
         });

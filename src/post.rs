@@ -70,7 +70,6 @@ impl Display for Post {
 impl Post {
     pub fn from(file_name: &PathBuf, header_only: bool) -> io::Result<Post> {
         let lines = fs::read_to_string(file_name)?;
-
         Self::from_string(file_name, &lines, header_only)
     }
 

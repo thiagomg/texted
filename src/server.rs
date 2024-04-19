@@ -1,4 +1,4 @@
-use std::{env, fs, io};
+use std::{fs, io};
 use std::collections::HashMap;
 use std::io::ErrorKind;
 use std::path::PathBuf;
@@ -14,19 +14,17 @@ use crate::content::content_renderer::{ContentRenderer, ImagePrefix, RenderOptio
 use crate::content::html_renderer::HtmlRenderer;
 use crate::content::texted_renderer::TextedRenderer;
 use crate::paginator::Paginator;
-use crate::post::{ContentFormat, Post};
-use crate::post_cache::PostCache;
+use crate::post::ContentFormat;
 use crate::post_processor::*;
-use crate::post_render::render_post;
 use crate::query_string::QueryString;
+use crate::util::toml_date::TomlDate;
 use crate::view::list_renderer::ListRenderer;
 
 struct AppState {
-    activity_start_year: i32,
     post_links: HashMap<String, PathBuf>,
     page_links: HashMap<String, PathBuf>,
-    posts: PostCache,
-    pages: PostCache,
+    // posts: PostCache,
+    // pages: PostCache,
     config: Config,
 }
 
@@ -90,36 +88,6 @@ async fn view(post_name: web::types::Path<String>, state: web::types::State<Arc<
         .body(rendered_post)
 }
 
-#[web::get("/list")]
-async fn list(req: HttpRequest, state: web::types::State<Arc<Mutex<AppState>>>) -> web::HttpResponse {
-    let state = &state.lock().unwrap();
-    let tpl_dir = &state.config.paths.template_dir;
-    let cache = &state.posts;
-    let page_size: u32 = state.config.defaults.page_size;
-    let config = &state.config;
-
-    let cur_page: u32 = get_cur_page(req);
-    let post_list = match render_list(&state.post_links, &config, cur_page, page_size) {
-        Ok(list) => list,
-        Err(e) => return web::HttpResponse::InternalServerError()
-            .body(format!("Error listing posts: {}", e)),
-    };
-
-    web::HttpResponse::Ok()
-        .content_type("text/html; charset=utf-8")
-        .body(post_list)
-
-    // let response = match list_posts(tpl_dir, cache, None, cur_page, page_size) {
-    //     Ok(body) => web::HttpResponse::Ok()
-    //         .content_type("text/html; charset=utf-8")
-    //         .body(body),
-    //     Err(error) => return web::HttpResponse::InternalServerError()
-    //         .body(error),
-    // };
-    //
-    // response
-}
-
 fn get_cur_page(req: HttpRequest) -> u32 {
     if let Some(query_str) = req.uri().query() {
         let qs = QueryString::from(query_str);
@@ -129,25 +97,47 @@ fn get_cur_page(req: HttpRequest) -> u32 {
     }
 }
 
-fn render_list(link_to_files: &HashMap<String, PathBuf>, config: &Config, cur_page: u32, page_size: u32) -> io::Result<String> {
+fn render_list(link_to_files: &HashMap<String, PathBuf>, config: &Config, cur_page: u32, tag: Option<String>) -> io::Result<String> {
     let mut contents = vec![];
+    let mut tag_map = HashMap::new();
 
-    // TODO: Sort posts by date
     for (post_link, content_path) in link_to_files.iter() {
         let content_file = ContentFile::from_file(post_link.clone(), content_path.clone())?;
-        let img_prefix = ImagePrefix(format!("view/{}", post_link));
+        let img_prefix = ImagePrefix(format!("/view/{}", post_link));
         let content = match content_file.format {
             ContentFormat::Texted => TextedRenderer::render(&content_file, RenderOptions::PreviewOnly(img_prefix)),
             ContentFormat::Html => HtmlRenderer::render(&content_file, RenderOptions::PreviewOnly(img_prefix)),
         }?;
-        contents.push(content);
+
+        for post_tag in content.header.tags.iter() {
+            *tag_map.entry(post_tag.clone()).or_insert(0) += 1;
+        }
+
+        match tag {
+            None => contents.push(content),
+            Some(ref s_tag) => {
+                if content.header.tags.contains(s_tag) {
+                    contents.push(content);
+                }
+            }
+        };
     }
 
+    // Sort tags by frequency reversed
+    let mut tag_list: Vec<(String, u32)> = tag_map.into_iter().map(|(k, v)| { (k, v) }).collect();
+    tag_list.sort_by(|a, b| {
+        let (_, va) = a;
+        let (_, vb) = b;
+        vb.cmp(va)
+    });
+    let tags = tag_list.into_iter().map(|(k, _v)| { k }).collect();
+
+    // sort contents by date reversed
     contents.sort_by(|a, b| {
-        // Sort by date, reversed
         b.header.date.cmp(&a.header.date)
     });
 
+    let page_size = config.defaults.page_size;
     let paginator = Paginator::from(&contents, page_size);
     let cur_page = match cur_page { // Sanity check for current page
         0 => 1,
@@ -166,28 +156,46 @@ fn render_list(link_to_files: &HashMap<String, PathBuf>, config: &Config, cur_pa
         Err(err_desc) => return Err(io::Error::new(ErrorKind::InvalidInput, err_desc)),
     };
 
-    let res = list_posts.render(content_page, cur_page);
+    let res = list_posts.render(content_page, cur_page, tags);
     Ok(res)
 }
 
-
-#[web::get("/list/{tag}/")]
-async fn list_with_tags(path: web::types::Path<String>, state: web::types::State<Arc<Mutex<AppState>>>) -> web::HttpResponse {
+#[web::get("/list")]
+async fn list(req: HttpRequest, state: web::types::State<Arc<Mutex<AppState>>>) -> web::HttpResponse {
     let state = &state.lock().unwrap();
-    let tpl_dir = &state.config.paths.template_dir;
-    let cache = &state.posts;
-    let tag = path.into_inner();
+    let config = &state.config;
 
-    // For now, we don't support pagination when tags are used
-    let response = match list_posts(tpl_dir, cache, Some(tag), 1, cache.posts().len() as u32) {
-        Ok(body) => web::HttpResponse::Ok()
-            .content_type("text/html; charset=utf-8")
-            .body(body),
-        Err(error) => return web::HttpResponse::InternalServerError()
-            .body(error),
+    let cur_page: u32 = get_cur_page(req);
+    let post_list = match render_list(&state.post_links, &config, cur_page, None) {
+        Ok(posts) => posts,
+        Err(e) => return web::HttpResponse::InternalServerError()
+            .body(format!("Error listing posts: {}", e)),
     };
 
-    response
+    web::HttpResponse::Ok()
+        .content_type("text/html; charset=utf-8")
+        .body(post_list)
+}
+
+#[web::get("/list/{tag}/")]
+async fn list_with_tags(
+    req: HttpRequest,
+    path: web::types::Path<String>,
+    state: web::types::State<Arc<Mutex<AppState>>>) -> web::HttpResponse {
+    let state = &state.lock().unwrap();
+    let config = &state.config;
+    let tag = path.into_inner();
+
+    let cur_page: u32 = get_cur_page(req);
+    let post_list = match render_list(&state.post_links, &config, cur_page, Some(tag)) {
+        Ok(posts) => posts,
+        Err(e) => return web::HttpResponse::InternalServerError()
+            .body(format!("Error listing posts: {}", e)),
+    };
+
+    web::HttpResponse::Ok()
+        .content_type("text/html; charset=utf-8")
+        .body(post_list)
 }
 
 #[web::get("/view/{post}/{file}")]
@@ -219,12 +227,12 @@ async fn public_files(path: web::types::Path<String>, state: web::types::State<A
 #[web::get("/")]
 async fn index(req: web::HttpRequest, state: web::types::State<Arc<Mutex<AppState>>>) -> web::HttpResponse {
     let state = state.lock().unwrap();
-    let cache = &state.posts;
+    // let cache = &state.posts;
     let tpl_dir = &state.config.paths.template_dir;
-    let activity_start_year = state.activity_start_year;
 
-
-    let response = match render_index(req, &cache, tpl_dir, activity_start_year) {
+    let TomlDate(blog_start_date) = state.config.personal.blog_start_date;
+    let activity_start_year = state.config.personal.activity_start_year;
+    let response = match render_index(req, state.post_links.len(), tpl_dir, activity_start_year, blog_start_date) {
         Ok(rendered) => web::HttpResponse::Ok()
             .content_type("text/html; charset=utf-8")
             .body(rendered),
@@ -233,31 +241,6 @@ async fn index(req: web::HttpRequest, state: web::types::State<Arc<Mutex<AppStat
     };
 
     response
-}
-
-fn render_post_and_summary(mut post: Post) -> io::Result<(Post, Post)> {
-    let link = PostCache::get_link_from_path_2(&post)?.to_string();
-    let raw_content = post.content;
-    let post_link = format!("/view/{}/", link);
-
-    let content_html = match post.header.format {
-        ContentFormat::Texted => render_post(&raw_content, None)?,
-        ContentFormat::Html => raw_content.clone(),
-    };
-
-    let summary_html = match post.header.format {
-        ContentFormat::Texted => render_post(&raw_content, Some(post_link.as_str()))?,
-        ContentFormat::Html => raw_content,
-    };
-
-    post.content = content_html;
-    let summary = Post {
-        header: post.header.clone(),
-        title: post.title.clone(),
-        content: summary_html,
-    };
-
-    Ok((post, summary))
 }
 
 pub async fn server_run(config: Config) -> io::Result<()> {
@@ -283,59 +266,41 @@ pub async fn server_run(config: Config) -> io::Result<()> {
     // TODO: Remove this get_posts
     let mut index_file_name = config.defaults.index_base_name.as_str().to_string();
     index_file_name += ".md";
-    let md_posts = match get_posts(&config.paths.posts_dir, &index_file_name) {
-        Ok(posts) => posts,
-        Err(err) => {
-            return Err(io::Error::new(
-                io::ErrorKind::InvalidData,
-                format!("Error retrieving post list template: {}. Dir={}. CurDir={}",
-                        err,
-                        config.paths.posts_dir.to_str().unwrap(),
-                        env::current_dir().unwrap().to_str().unwrap()
-                )));
-        }
-    };
-
-    let md_pages = match get_posts(&config.paths.pages_dir, &index_file_name) {
-        Ok(posts) => posts,
-        Err(err) => {
-            return Err(io::Error::new(
-                io::ErrorKind::InvalidData,
-                format!("Error retrieving post list template: {}. Dir={}. CurDir={}",
-                        err,
-                        config.paths.posts_dir.to_str().unwrap(),
-                        env::current_dir().unwrap().to_str().unwrap()
-                )));
-        }
-    };
+    // let md_posts = match get_posts(&config.paths.posts_dir, &index_file_name) {
+    //     Ok(posts) => posts,
+    //     Err(err) => {
+    //         return Err(io::Error::new(
+    //             io::ErrorKind::InvalidData,
+    //             format!("Error retrieving post list template: {}. Dir={}. CurDir={}",
+    //                     err,
+    //                     config.paths.posts_dir.to_str().unwrap(),
+    //                     env::current_dir().unwrap().to_str().unwrap()
+    //             )));
+    //     }
+    // };
+    //
+    // let md_pages = match get_posts(&config.paths.pages_dir, &index_file_name) {
+    //     Ok(posts) => posts,
+    //     Err(err) => {
+    //         return Err(io::Error::new(
+    //             io::ErrorKind::InvalidData,
+    //             format!("Error retrieving post list template: {}. Dir={}. CurDir={}",
+    //                     err,
+    //                     config.paths.posts_dir.to_str().unwrap(),
+    //                     env::current_dir().unwrap().to_str().unwrap()
+    //             )));
+    //     }
+    // };
 
     let bind_addr = config.server.address.clone();
     let bind_port = config.server.port;
     let app_state = Arc::new(Mutex::new(AppState {
-        activity_start_year: config.personal.activity_start_year,
         post_links,
         page_links,
-        posts: PostCache::new(config.defaults.index_base_name.as_str()),
-        pages: PostCache::new(config.defaults.index_base_name.as_str()),
+        // posts: PostCache::new(config.defaults.index_base_name.as_str()),
+        // pages: PostCache::new(config.defaults.index_base_name.as_str()),
         config,
     }));
-
-    {
-        let state = &mut app_state.lock().unwrap();
-        let post_cache = &mut state.posts;
-        for post in md_posts {
-            // Let's render the post if it's markdown or just copy if it's HTML
-            let (post, summary) = render_post_and_summary(post)?;
-            post_cache.add(post, Some(summary))?;
-        }
-        post_cache.sort();
-
-        let page_cache = &mut state.pages;
-        for post in md_pages {
-            page_cache.add(post, None)?;
-        }
-        page_cache.sort();
-    }
 
     web::HttpServer::new(move || {
         web::App::new()

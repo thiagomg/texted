@@ -4,6 +4,8 @@ use std::path::PathBuf;
 
 use serde::Deserialize;
 
+use crate::util::toml_date::TomlDate;
+
 #[derive(Deserialize)]
 pub struct Paths {
     pub template_dir: PathBuf,
@@ -15,7 +17,9 @@ pub struct Paths {
 #[derive(Deserialize)]
 pub struct Personal {
     pub activity_start_year: i32,
+    pub blog_start_date: TomlDate,
 }
+
 
 #[derive(Deserialize)]
 pub struct Defaults {
