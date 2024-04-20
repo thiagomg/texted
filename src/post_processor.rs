@@ -1,5 +1,6 @@
 use std::{fs, io};
 use std::collections::HashMap;
+use std::io::ErrorKind;
 use std::path::PathBuf;
 
 use chrono::{Datelike, NaiveDate, Utc};
@@ -11,10 +12,13 @@ use ramhorns::{Content, Template};
 use crate::config::Config;
 use crate::content::content_file::ContentFile;
 use crate::content::content_format::ContentFormat;
-use crate::content::content_renderer::{ContentRenderer, RenderOptions};
+use crate::content::content_renderer::{ContentRenderer, ImagePrefix, RenderOptions};
 use crate::content::html_renderer::HtmlRenderer;
 use crate::content::texted_renderer::TextedRenderer;
+use crate::paginator::Paginator;
 use crate::post_list::PostList;
+use crate::query_string::QueryString;
+use crate::view::list_renderer::ListRenderer;
 use crate::view::post_renderer::PostRenderer;
 
 #[derive(Content)]
@@ -265,18 +269,18 @@ pub fn get_file(root_dir: &PathBuf, post: String, file: String) -> Result<NamedF
 }
 
 pub fn render_index(req: HttpRequest, num_of_posts: usize, tpl_dir: &PathBuf,
-                    activity_start_year: i32, blog_start_date: NaiveDate) -> Result<String, String> {
+                    activity_start_year: i32, blog_start_date: NaiveDate) -> io::Result<String> {
     let index_tpl_src: String = match read_template(tpl_dir, "index.tpl") {
         Ok(s) => s,
         Err(e) => {
-            return Err(format!("Error loading index template: {}", e));
+            return Err(io::Error::new(ErrorKind::InvalidInput, format!("Error loading index template: {}", e)));
         }
     };
 
     let index_tpl = match Template::new(index_tpl_src) {
         Ok(x) => x,
         Err(e) => {
-            return Err(format!("Error parsing index template: {}", e));
+            return Err(io::Error::new(ErrorKind::InvalidInput, format!("Error parsing index template: {}", e)));
         }
     };
 
@@ -319,6 +323,79 @@ pub fn open_content(config: &Config, link_to_files: &HashMap<String, PathBuf>, t
     let post_renderer = PostRenderer::new(&template_src)?;
     Ok(post_renderer.render(&content))
 }
+
+pub fn get_cur_page(req: HttpRequest) -> u32 {
+    if let Some(query_str) = req.uri().query() {
+        let qs = QueryString::from(query_str);
+        qs.get_page()
+    } else {
+        1
+    }
+}
+
+pub fn render_list(link_to_files: &HashMap<String, PathBuf>, config: &Config, cur_page: u32, tag: Option<String>) -> io::Result<String> {
+    let mut contents = vec![];
+    let mut tag_map = HashMap::new();
+
+    for (post_link, content_path) in link_to_files.iter() {
+        let content_file = ContentFile::from_file(post_link.clone(), content_path.clone())?;
+        let img_prefix = ImagePrefix(format!("/view/{}", post_link));
+        let content = match content_file.format {
+            ContentFormat::Texted => TextedRenderer::render(&content_file, RenderOptions::PreviewOnly(img_prefix)),
+            ContentFormat::Html => HtmlRenderer::render(&content_file, RenderOptions::PreviewOnly(img_prefix)),
+        }?;
+
+        for post_tag in content.header.tags.iter() {
+            *tag_map.entry(post_tag.clone()).or_insert(0) += 1;
+        }
+
+        match tag {
+            None => contents.push(content),
+            Some(ref s_tag) => {
+                if content.header.tags.contains(s_tag) {
+                    contents.push(content);
+                }
+            }
+        };
+    }
+
+    // Sort tags by frequency reversed
+    let mut tag_list: Vec<(String, u32)> = tag_map.into_iter().map(|(k, v)| { (k, v) }).collect();
+    tag_list.sort_by(|a, b| {
+        let (_, va) = a;
+        let (_, vb) = b;
+        vb.cmp(va)
+    });
+    let tags = tag_list.into_iter().map(|(k, _v)| { k }).collect();
+
+    // sort contents by date reversed
+    contents.sort_by(|a, b| {
+        b.header.date.cmp(&a.header.date)
+    });
+
+    let page_size = config.defaults.page_size;
+    let paginator = Paginator::from(&contents, page_size);
+    let cur_page = match cur_page { // Sanity check for current page
+        0 => 1,
+        x if x > paginator.page_count() => 1,
+        x => x,
+    };
+
+    let template_dir = &config.paths.template_dir;
+    let template_path = template_dir.join("postlist.tpl");
+    let template_src = fs::read_to_string(&template_path)?;
+    let list_posts = ListRenderer::new(&template_src, paginator.page_count());
+    let list_posts = list_posts.unwrap();
+
+    let content_page = match paginator.get_page(cur_page) {
+        Ok(content) => content,
+        Err(err_desc) => return Err(io::Error::new(ErrorKind::InvalidInput, err_desc)),
+    };
+
+    let res = list_posts.render(content_page, cur_page, tags);
+    Ok(res)
+}
+
 
 #[cfg(test)]
 mod tests {
