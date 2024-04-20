@@ -1,7 +1,7 @@
   <a href="https://gitlab.com/thiagomg/texted2"><img height="100%"
    src="https://gitlab.com/thiagomg/texted2/-/raw/62124a2716d0f702f42d2700788c6528e71f6af1/Texted-logo.png"></a>
 
-# Texted 2 - Free your text!
+# Texted - Free your text!
 
 Why did I create one blog system instead of using some existing blog platform?
 
