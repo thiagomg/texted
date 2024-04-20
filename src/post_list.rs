@@ -19,7 +19,7 @@ impl PostList {
                     let file_name = entry.file_name();
                     if let Some(file_name) = file_name.to_str() {
                         // Check if the file has a .md extension
-                        if file_name.ends_with(".md") {
+                        if file_name.ends_with(".md") || file_name.ends_with(".html") || file_name.ends_with(".htm") {
                             posts.push(entry.path());
                         }
                     }
@@ -29,7 +29,7 @@ impl PostList {
         Ok(posts)
     }
 
-    pub fn retrieve_dirs(&self) -> io::Result<Vec<PathBuf>> {
+    pub fn retrieve_dirs(&self) -> io::Result<Vec<(PathBuf, String)>> {
         // Per directory, we should have a file called post.md
         let dirs = Self::list_dirs(self.root_dir.as_path())?;
         // Filtering only the dirs with a post inside
@@ -52,36 +52,29 @@ impl PostList {
         Ok(dirs)
     }
 
-    fn filter_dirs(post_file: &str, dirs: Vec<PathBuf>) -> Vec<PathBuf> {
+    fn filter_dirs(post_file: &str, dirs: Vec<PathBuf>) -> Vec<(PathBuf, String)> {
         let mut post_dirs = vec![];
         for dir in dirs {
-            let post_path = dir.as_path().join(post_file);
-            if post_path.exists() {
-                // TODO: Validate the header of the post.md file is valid
-                post_dirs.push(dir);
+            if let Some(file_name) = Self::contains_file(&dir, post_file).unwrap() {
+                post_dirs.push((dir, file_name));
             }
         }
         post_dirs
     }
-}
 
-#[cfg(test)]
-mod tests {
-    use crate::post::Post;
-    use super::*;
-
-    #[test]
-    fn test_happy_case() -> io::Result<()> {
-        let root_dir = PathBuf::from("posts");
-        let post_file = "index.md".to_string();
-        let post_list = PostList { root_dir, post_file };
-
-        let dirs = post_list.retrieve_dirs()?;
-        for dir in dirs.as_slice() {
-            let p = dir.join("index.md");
-            let post = Post::from(&p, true)?;
-            println!("{}\n{}\n=-=-=-=-=-=-=-=-=-=-", p.to_str().unwrap(), post);
+    fn contains_file(dir: &PathBuf, base_name: &str) -> io::Result<Option<String>> {
+        let entries = fs::read_dir(dir)?;
+        for entry in entries {
+            let entry = entry?;
+            if entry.file_type()?.is_file() {
+                let file_name = entry.file_name().to_str().unwrap().to_string();
+                if file_name.contains(base_name) {
+                    return Ok(Some(file_name.to_string()));
+                }
+            }
         }
-        Ok(())
+
+        Ok(None)
     }
 }
+

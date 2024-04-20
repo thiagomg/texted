@@ -31,6 +31,7 @@
             <p><a href="list">List of posts</a></p>
             <p>Pages are supported too:
             <a href="page/bio">My bio</a>
+            <a href="page/html_page">HTML page</a>
             </p>
         </div>
         <div class="card">
