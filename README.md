@@ -14,17 +14,17 @@ Why did I create one blog system instead of using some existing blog platform?
 Installing
 
 ```bash
-cargo install texted2
+cargo install texted
 ```
 
 Generating a sample configuration
 
 ```bash
 # Generates a config file in the current directory
-texted2 --generate-cfg -c texted2.toml
+texted --generate-cfg -c texted.toml
 
 # Or to generate in the default config directory
-texted2 --generate-cfg
+texted --generate-cfg
 ```
 
 ### Building from sources
@@ -38,7 +38,7 @@ cargo build --release
 How to run?
 
 ```bash
-cargo run --bin texted2
+cargo run --bin texted
 ```
 
 ## How to personalise my site?
@@ -103,4 +103,4 @@ See `post_without_images.md` or `post_with_image/index.md` for an example
 
 ### Tip
 
-If you run the texted2-post binary, it will create a post skeleton with header, title and sample body to you.
+If you run the texted-post binary, it will create a post skeleton with header, title and sample body to you.

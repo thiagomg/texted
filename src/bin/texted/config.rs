@@ -1,6 +1,8 @@
 use std::env;
 use std::path::PathBuf;
-use texted2::config::{Config, read_config};
+
+use texted::config::{Config, read_config};
+
 use crate::CFG_FILE_NAME;
 use crate::config_data::write_sample_cfg;
 
@@ -27,7 +29,7 @@ fn get_config_path() -> Option<PathBuf> {
 
 pub(crate) fn open_config(cfg_path: Option<PathBuf>) -> Result<Config, String> {
     let config_path = cfg_path.unwrap_or(match get_config_path() {
-        None => return Err("Could not find Texted2 configuration".to_string()),
+        None => return Err("Could not find Texted configuration".to_string()),
         Some(x) => x,
     });
     println!("Current dir: {}", env::current_dir().unwrap().to_str().unwrap());

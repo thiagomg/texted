@@ -1,12 +1,15 @@
+use std::path::PathBuf;
+
+use clap::Parser;
+
+use texted::server::server_run;
+
+use crate::config::{generate_cfg, open_config};
+
 mod config_data;
 mod config;
 
-use std::path::PathBuf;
-use clap::Parser;
-use texted2::server::server_run;
-use crate::config::{generate_cfg, open_config};
-
-const CFG_FILE_NAME: &str = "texted2.toml";
+const CFG_FILE_NAME: &str = "texted.toml";
 
 #[derive(Parser, Debug)]
 #[command(version, about, long_about = None)]
@@ -15,7 +18,7 @@ struct Args {
     #[arg(short, long)]
     config_path: Option<String>,
 
-    /// Generates texted2 config. Use with -c to specify the location
+    /// Generates texted config. Use with -c to specify the location
     #[arg(long)]
     generate_cfg: bool,
 }
@@ -34,7 +37,7 @@ async fn main() -> std::io::Result<()> {
         Ok(config) => config,
         Err(err) => {
             println!("{}", err);
-            println!("Please run texted2 --help");
+            println!("Please run texted --help");
             return Ok(());
         }
     };
