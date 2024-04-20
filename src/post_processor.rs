@@ -10,11 +10,13 @@ use ntex_files::NamedFile;
 use ramhorns::{Content, Template};
 
 use crate::config::Config;
+use crate::content;
 use crate::content::content_file::ContentFile;
 use crate::content::content_format::ContentFormat;
 use crate::content::content_renderer::{ContentRenderer, ImagePrefix, RenderOptions};
 use crate::content::html_renderer::HtmlRenderer;
 use crate::content::texted_renderer::TextedRenderer;
+use crate::content_cache::ContentCache;
 use crate::paginator::Paginator;
 use crate::post_list::PostList;
 use crate::query_string::QueryString;
@@ -333,7 +335,12 @@ pub fn get_cur_page(req: HttpRequest) -> u32 {
     }
 }
 
-pub fn render_list(link_to_files: &HashMap<String, PathBuf>, config: &Config, cur_page: u32, tag: Option<String>) -> io::Result<String> {
+pub struct PostListWithTags {
+    contents: Vec<content::Content>,
+    tag_map: HashMap<String, i32>,
+}
+
+pub fn retrieve_post_list(cache: &mut ContentCache<String>, link_to_files: &HashMap<String, PathBuf>, tag_to_filter: Option<String>) -> io::Result<PostListWithTags> {
     let mut contents = vec![];
     let mut tag_map = HashMap::new();
 
@@ -349,7 +356,7 @@ pub fn render_list(link_to_files: &HashMap<String, PathBuf>, config: &Config, cu
             *tag_map.entry(post_tag.clone()).or_insert(0) += 1;
         }
 
-        match tag {
+        match tag_to_filter {
             None => contents.push(content),
             Some(ref s_tag) => {
                 if content.header.tags.contains(s_tag) {
@@ -359,8 +366,18 @@ pub fn render_list(link_to_files: &HashMap<String, PathBuf>, config: &Config, cu
         };
     }
 
+    Ok(PostListWithTags {
+        contents,
+        tag_map,
+    })
+}
+
+pub fn render_list(config: &Config, posts: PostListWithTags, cur_page: u32) -> io::Result<String> {
+    let tag_map = posts.tag_map;
+    let mut contents = posts.contents;
+
     // Sort tags by frequency reversed
-    let mut tag_list: Vec<(String, u32)> = tag_map.into_iter().map(|(k, v)| { (k, v) }).collect();
+    let mut tag_list: Vec<(String, i32)> = tag_map.into_iter().map(|(k, v)| { (k, v) }).collect();
     tag_list.sort_by(|a, b| {
         let (_, va) = a;
         let (_, vb) = b;

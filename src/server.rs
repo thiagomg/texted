@@ -16,7 +16,7 @@ struct AppState {
     post_links: Arc<HashMap<String, PathBuf>>,
     page_links: Arc<HashMap<String, PathBuf>>,
     config: Arc<Config>,
-    cache: Arc<Mutex<ContentCache>>,
+    cache: Arc<Mutex<ContentCache<String>>>,
 }
 
 // Begin: Redirect region --------
@@ -95,14 +95,22 @@ async fn view(post_name: web::types::Path<String>, state: web::types::State<Arc<
 
 #[web::get("/list")]
 async fn list(req: HttpRequest, state: web::types::State<Arc<Mutex<AppState>>>) -> web::HttpResponse {
-    let state = &state.lock().unwrap();
-    let config = &state.config;
+    let state = state.lock().unwrap();
+    let mut cache = state.cache.lock().unwrap();
+    let config = state.config.clone();
+    let post_links = state.post_links.clone();
 
-    let cur_page: u32 = get_cur_page(req);
-    let post_list = match render_list(&state.post_links, &config, cur_page, None) {
+    let rendered_posts = match retrieve_post_list(&mut cache, &post_links, None) {
         Ok(posts) => posts,
         Err(e) => return web::HttpResponse::InternalServerError()
             .body(format!("Error listing posts: {}", e)),
+    };
+
+    let cur_page: u32 = get_cur_page(req);
+    let post_list = match render_list(&config, rendered_posts, cur_page) {
+        Ok(posts) => posts,
+        Err(e) => return web::HttpResponse::InternalServerError()
+            .body(format!("Error rendering post list: {}", e)),
     };
 
     web::HttpResponse::Ok()
@@ -112,15 +120,24 @@ async fn list(req: HttpRequest, state: web::types::State<Arc<Mutex<AppState>>>) 
 
 #[web::get("/list/{tag}/")]
 async fn list_with_tags(req: HttpRequest, path: web::types::Path<String>, state: web::types::State<Arc<Mutex<AppState>>>) -> web::HttpResponse {
-    let state = &state.lock().unwrap();
-    let config = &state.config;
     let tag = path.into_inner();
 
-    let cur_page: u32 = get_cur_page(req);
-    let post_list = match render_list(&state.post_links, &config, cur_page, Some(tag)) {
+    let state = state.lock().unwrap();
+    let mut cache = state.cache.lock().unwrap();
+    let config = state.config.clone();
+    let post_links = state.post_links.clone();
+
+    let rendered_posts = match retrieve_post_list(&mut cache, &post_links, Some(tag)) {
         Ok(posts) => posts,
         Err(e) => return web::HttpResponse::InternalServerError()
             .body(format!("Error listing posts: {}", e)),
+    };
+
+    let cur_page: u32 = get_cur_page(req);
+    let post_list = match render_list(&config, rendered_posts, cur_page) {
+        Ok(posts) => posts,
+        Err(e) => return web::HttpResponse::InternalServerError()
+            .body(format!("Error rendering post list: {}", e)),
     };
 
     web::HttpResponse::Ok()
