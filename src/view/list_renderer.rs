@@ -1,5 +1,6 @@
 use std::io;
 use std::io::ErrorKind;
+use std::sync::Arc;
 
 use ramhorns::Template;
 
@@ -54,7 +55,7 @@ impl ListRenderer<'_> {
         })
     }
 
-    pub fn render(&self, contents: &[Content], cur_page: u32, tags: Vec<String>) -> String {
+    pub fn render(&self, contents: &[Arc<Content>], cur_page: u32, tags: Vec<String>) -> String {
         let mut post_list = vec![];
         for content in contents {
             let (date, time) = format_date_time(&content.header.date);

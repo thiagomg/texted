@@ -8,6 +8,7 @@ use ntex::web::HttpRequest;
 use ntex_files::NamedFile;
 
 use crate::config::Config;
+use crate::content::Content;
 use crate::content_cache::ContentCache;
 use crate::post_processor::*;
 use crate::util::toml_date::TomlDate;
@@ -16,7 +17,8 @@ struct AppState {
     post_links: Arc<HashMap<String, PathBuf>>,
     page_links: Arc<HashMap<String, PathBuf>>,
     config: Arc<Config>,
-    cache: Arc<Mutex<ContentCache<String>>>,
+    post_cache: Arc<Mutex<ContentCache<String>>>,
+    content_cache: Arc<Mutex<ContentCache<Content>>>,
 }
 
 // Begin: Redirect region --------
@@ -42,7 +44,7 @@ async fn page(page_name: web::types::Path<String>, state: web::types::State<Arc<
     let page_name = page_name.into_inner();
 
     let state = state.lock().unwrap();
-    let mut cache = state.cache.lock().unwrap();
+    let mut cache = state.post_cache.lock().unwrap();
     let config = state.config.clone();
     let page_links = state.page_links.clone();
 
@@ -70,7 +72,7 @@ async fn view(post_name: web::types::Path<String>, state: web::types::State<Arc<
     let post_name = post_name.into_inner();
 
     let state = state.lock().unwrap();
-    let mut cache = state.cache.lock().unwrap();
+    let mut cache = state.post_cache.lock().unwrap();
     let config = state.config.clone();
     let post_links = state.post_links.clone();
 
@@ -96,7 +98,7 @@ async fn view(post_name: web::types::Path<String>, state: web::types::State<Arc<
 #[web::get("/list")]
 async fn list(req: HttpRequest, state: web::types::State<Arc<Mutex<AppState>>>) -> web::HttpResponse {
     let state = state.lock().unwrap();
-    let mut cache = state.cache.lock().unwrap();
+    let mut cache = state.content_cache.lock().unwrap();
     let config = state.config.clone();
     let post_links = state.post_links.clone();
 
@@ -123,7 +125,7 @@ async fn list_with_tags(req: HttpRequest, path: web::types::Path<String>, state:
     let tag = path.into_inner();
 
     let state = state.lock().unwrap();
-    let mut cache = state.cache.lock().unwrap();
+    let mut cache = state.content_cache.lock().unwrap();
     let config = state.config.clone();
     let post_links = state.post_links.clone();
 
@@ -174,7 +176,7 @@ async fn public_files(path: web::types::Path<String>, state: web::types::State<A
 #[web::get("/")]
 async fn index(req: web::HttpRequest, state: web::types::State<Arc<Mutex<AppState>>>) -> web::HttpResponse {
     let state = state.lock().unwrap();
-    let mut cache = state.cache.lock().unwrap();
+    let mut cache = state.post_cache.lock().unwrap();
     let config = state.config.clone();
     let page_name = "-index-page";
 
@@ -222,7 +224,8 @@ pub async fn server_run(config: Config) -> io::Result<()> {
     let page_links = Arc::new(page_links);
 
     let config = Arc::new(config);
-    let cache = Arc::new(Mutex::new(ContentCache::new()));
+    let post_cache = Arc::new(Mutex::new(ContentCache::new()));
+    let content_cache = Arc::new(Mutex::new(ContentCache::new()));
 
     // TODO: Remove this get_posts
     let mut index_file_name = config.defaults.index_base_name.as_str().to_string();
@@ -234,7 +237,8 @@ pub async fn server_run(config: Config) -> io::Result<()> {
         post_links,
         page_links,
         config,
-        cache,
+        post_cache,
+        content_cache,
     }));
 
     web::HttpServer::new(move || {
