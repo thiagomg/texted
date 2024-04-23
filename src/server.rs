@@ -1,8 +1,8 @@
 use std::collections::HashMap;
-use std::io;
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 
+use anyhow::Result;
 use ntex::web;
 use ntex::web::HttpRequest;
 use ntex_files::NamedFile;
@@ -49,11 +49,13 @@ async fn page(page_name: web::types::Path<String>, state: web::types::State<Arc<
     let page_links = state.page_links.clone();
 
     let rendered_page = match cache.get_page_or(&page_name, || {
-        println!("Rendering page {} from cache", page_name);
+        // TODO: Change to log
+        // println!("Rendering page {} from cache", page_name);
         open_content(&config, &page_links, "page.tpl", &page_name)
     }) {
         Ok(rendered_post) => {
-            println!("Retrieving page {} from cache", page_name);
+            // TODO: Change to log
+            // println!("Retrieving page {} from cache", page_name);
             rendered_post
         }
         Err(e) => {
@@ -77,11 +79,13 @@ async fn view(post_name: web::types::Path<String>, state: web::types::State<Arc<
     let post_links = state.post_links.clone();
 
     let rendered_post = match cache.get_post_or(&post_name, || {
-        println!("Rendering post {} from cache", post_name);
+        // TODO: Change to log
+        // println!("Rendering post {} from cache", post_name);
         open_content(&config, &post_links, "view.tpl", &post_name)
     }) {
         Ok(rendered_post) => {
-            println!("Retrieving post {} from cache", post_name);
+            // TODO: Change to log
+            // println!("Retrieving post {} from cache", post_name);
             rendered_post
         }
         Err(e) => {
@@ -181,13 +185,15 @@ async fn index(req: web::HttpRequest, state: web::types::State<Arc<Mutex<AppStat
     let page_name = "-index-page";
 
     let rendered_page = match cache.get_page_or(&page_name, || {
-        println!("Rendering page {} from cache", page_name);
+        // TODO: Change to log
+        // println!("Rendering page {} from cache", page_name);
         let TomlDate(blog_start_date) = state.config.personal.blog_start_date;
         let activity_start_year = state.config.personal.activity_start_year;
         render_index(req, state.post_links.len(), &config.paths.template_dir, activity_start_year, blog_start_date)
     }) {
         Ok(rendered_post) => {
-            println!("Retrieving page {} from cache", page_name);
+            // TODO: Change to log
+            // println!("Retrieving page {} from cache", page_name);
             rendered_post
         }
         Err(e) => {
@@ -201,15 +207,19 @@ async fn index(req: web::HttpRequest, state: web::types::State<Arc<Mutex<AppStat
         .body(rendered_page)
 }
 
-pub async fn server_run(config: Config) -> io::Result<()> {
+pub async fn server_run(config: Config) -> Result<()> {
+    let index_base_name = config.defaults.index_base_name.as_str();
+
     // List post files and generate list of link -> post file
-    let post_link_vec: Vec<PostLink> = list_post_files(&config.paths.posts_dir, config.defaults.index_base_name.as_str())?;
+    let post_link_vec: Vec<PostLink> = list_post_files(&config.paths.posts_dir, index_base_name)?;
     for file in post_link_vec.iter() {
+        // TODO: Change to log
         println!("Post: {:?}", file.post_name);
     }
 
-    let page_link_vec: Vec<PostLink> = list_post_files(&config.paths.pages_dir, config.defaults.index_base_name.as_str())?;
+    let page_link_vec: Vec<PostLink> = list_post_files(&config.paths.pages_dir, index_base_name)?;
     for file in page_link_vec.iter() {
+        // TODO: Change to log
         println!("Page: {:?}", file.post_name);
     }
 
@@ -224,12 +234,14 @@ pub async fn server_run(config: Config) -> io::Result<()> {
     let page_links = Arc::new(page_links);
 
     let config = Arc::new(config);
-    let post_cache = Arc::new(Mutex::new(ContentCache::new()));
-    let content_cache = Arc::new(Mutex::new(ContentCache::new()));
-
-    // TODO: Remove this get_posts
-    let mut index_file_name = config.defaults.index_base_name.as_str().to_string();
-    index_file_name += ".md";
+    let (post_cache, content_cache) = match config.defaults.cache_enabled {
+        true => {
+            (Arc::new(Mutex::new(ContentCache::new())), Arc::new(Mutex::new(ContentCache::new())))
+        }
+        false => {
+            (Arc::new(Mutex::new(ContentCache::non_caching())), Arc::new(Mutex::new(ContentCache::non_caching())))
+        }
+    };
 
     let bind_addr = config.server.address.clone();
     let bind_port = config.server.port;
@@ -258,4 +270,5 @@ pub async fn server_run(config: Config) -> io::Result<()> {
         .bind((bind_addr, bind_port))?
         .run()
         .await
+        .map_err(anyhow::Error::from)
 }

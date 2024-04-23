@@ -1,5 +1,6 @@
 use std::path::PathBuf;
 
+use anyhow::Result;
 use clap::Parser;
 
 use texted::server::server_run;
@@ -18,13 +19,13 @@ struct Args {
     #[arg(short, long)]
     config_path: Option<String>,
 
-    /// Generates texted config. Use with -c to specify the location
+    /// Generates texted config. Use with -c to specify the file path
     #[arg(long)]
     generate_cfg: bool,
 }
 
 #[ntex::main]
-async fn main() -> std::io::Result<()> {
+async fn main() -> Result<()> {
     let args = Args::parse();
     let config_path = args.config_path.and_then(|x| Some(PathBuf::from(x)));
 

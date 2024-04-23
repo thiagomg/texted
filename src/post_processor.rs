@@ -4,6 +4,7 @@ use std::io::ErrorKind;
 use std::path::PathBuf;
 use std::sync::Arc;
 
+use anyhow::Result;
 use chrono::{Datelike, NaiveDate, Utc};
 use ntex::web;
 use ntex::web::{Error, HttpRequest};
@@ -77,7 +78,7 @@ pub struct PostLink {
     pub post_path: PathBuf,
 }
 
-pub fn list_post_files(root_dir: &PathBuf, post_file: &str) -> io::Result<Vec<PostLink>> {
+pub fn list_post_files(root_dir: &PathBuf, post_file: &str) -> Result<Vec<PostLink>> {
     let root_dir = root_dir.clone();
     let post_list = PostList {
         root_dir,
@@ -201,7 +202,8 @@ pub fn retrieve_post_list(cache: &mut ContentCache<Content>, link_to_files: &Has
 
     for (post_link, content_path) in link_to_files.iter() {
         let content = cache.get_post_or(post_link, || {
-            println!("Rendering post preview from file for {}", post_link);
+            // TODO: Change to log
+            // println!("Rendering post preview from file for {}", post_link);
             let content_file = ContentFile::from_file(post_link.clone(), content_path.clone())?;
             let img_prefix = ImagePrefix(format!("/view/{}", post_link));
             match content_file.format {

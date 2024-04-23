@@ -3,13 +3,13 @@ use std::io;
 use std::sync::{Arc, RwLock};
 
 pub struct ContentCache<T> {
-    cache: HashMap<String, Arc<T>>,
+    cache: Option<HashMap<String, Arc<T>>>,
     lock: RwLock<i32>,
 }
 
 impl<T> ContentCache<T> {
     pub fn new() -> Self {
-        let cache = HashMap::new();
+        let cache = Some(HashMap::new());
         let lock = RwLock::new(0);
         ContentCache {
             cache,
@@ -17,9 +17,23 @@ impl<T> ContentCache<T> {
         }
     }
 
-    fn add(&mut self, key: String, content: T) {
-        let _lock = self.lock.write().unwrap();
-        self.cache.insert(key, Arc::new(content));
+    pub fn non_caching() -> Self {
+        let cache = None;
+        let lock = RwLock::new(0);
+        ContentCache {
+            cache,
+            lock,
+        }
+    }
+
+    fn add(&mut self, key: String, content: T) -> Arc<T> {
+        if let Some(ref mut cache) = self.cache {
+            let _lock = self.lock.write().unwrap();
+            cache.insert(key.clone(), Arc::new(content));
+            cache.get(&key).unwrap().clone()
+        } else {
+            Arc::new(content)
+        }
     }
 
     pub fn get_post_or<F>(&mut self, link: &str, generator_fn: F) -> io::Result<Arc<T>>
@@ -43,20 +57,20 @@ impl<T> ContentCache<T> {
         let res = self.get(&key);
         if res.is_none() {
             let content = generator_fn()?;
-            self.add(key.clone(), content);
-            Ok(self.get(&key).unwrap())
+            Ok(self.add(key.clone(), content))
         } else {
             Ok(res.clone().unwrap())
         }
     }
 
     fn get(&mut self, key: &str) -> Option<Arc<T>> {
-        let _reader = self.lock.read().unwrap();
-        if let Some(content) = self.cache.get(key) {
-            Some(content.clone())
-        } else {
-            None
+        if let Some(ref cache) = self.cache {
+            let _reader = self.lock.read().unwrap();
+            if let Some(content) = cache.get(key) {
+                return Some(content.clone());
+            }
         }
+        None
     }
 }
 
@@ -89,5 +103,15 @@ mod tests {
             Ok("post-1-content".to_string())
         });
         assert_eq!(content.unwrap().as_str(), "post-1-content");
+    }
+
+    #[test]
+    fn test_no_cache() {
+        let mut cache = ContentCache::non_caching();
+        let content = cache.get_post_or("some_link", || {
+            Ok("post-1-content".to_string())
+        });
+        assert_eq!(content.unwrap().as_str(), "post-1-content");
+        assert_eq!(cache.get("some_link"), None);
     }
 }

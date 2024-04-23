@@ -1,17 +1,18 @@
-  <a href="https://gitlab.com/thiagomg/texted2"><img height="100%"
-   src="https://gitlab.com/thiagomg/texted2/-/raw/62124a2716d0f702f42d2700788c6528e71f6af1/Texted-logo.png"></a>
+<a href="https://gitlab.com/thiagomg/texted2"><img height="100%"
+src="https://gitlab.com/thiagomg/texted2/-/raw/62124a2716d0f702f42d2700788c6528e71f6af1/Texted-logo.png"></a>
 
 # Texted - Free your text!
 
 Why did I create one blog system instead of using some existing blog platform?
 
-1. I am writing in some other platforms, such as [dev.to/thiagomg](https://dev.to/thiagomg) however if they lose their data or close their platform, I don't want to lose what I've written
+1. I am writing in some other platforms, such as [dev.to/thiagomg](https://dev.to/thiagomg) however if they lose their
+   data or close their platform, I don't want to lose what I've written
 2. I wanted to learn Rust, therefore I created a blog system
-3. If I get the blog posts, with the way they are structured here and add to github/gitlab/etc, it will just work.
+3. If I get the blog posts, with the way they are structured here and add to github/gitlab/etc, it will just work (adding a header to the files)
 
 ## Getting started
 
-Installing
+### Installing
 
 ```bash
 cargo install texted
@@ -27,7 +28,11 @@ texted --generate-cfg -c texted.toml
 texted --generate-cfg
 ```
 
-### Building from sources
+### Bootstrapping
+
+Bootstrapping is not ready yet, but you can just download this repository and point the configuration to the [res directory](https://gitlab.com/thiagomg/texted/-/tree/main/res?ref_type=heads)
+
+## Building from sources
 
 How to build?
 
@@ -43,7 +48,8 @@ cargo run --bin texted
 
 ## How to personalise my site?
 
-You can create your HTML templates using [mustache templates](https://mustache.github.io). The examples show all supported fields
+You can create your HTML templates using [mustache templates](https://mustache.github.io). The examples show all
+supported fields
 
 Templates can have images, css and js, etc. Those support files should live in the public directory
 
@@ -83,12 +89,15 @@ The directory `post/post_with_image` will be accesible using the url `http://127
 
 ### Header
 
-Each post or page markdown file contains a header with a unique identification, date and author. It is followed by the post title.
+Each post or page markdown file contains a header with a unique identification, date and author. It is followed by the
+post title. The html comment is optional, but some markdown editors screw up the header if not in an html comment, so I added it in the example
 
-```
+```markdown
+<!--
 [ID]: # (21c1e9ad-4ebb-4168-a543-fbf77cc35a85)
 [DATE]: # (2024-02-12 22:54:00.000)
 [AUTHOR]: # (thiago)
+-->
 
 # How does it work?
 ```
@@ -97,7 +106,8 @@ Everything after that is the body of the post
 
 ### More
 
-In the post list, what is presented is a part of the post body. To determine when it stops, you add the `<!-- more -->` tag.
+In the post list, what is presented is a part of the post body. To determine when it stops, you add the `<!-- more -->`
+tag.
 
 See `post_without_images.md` or `post_with_image/index.md` for an example
 

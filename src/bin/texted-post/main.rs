@@ -7,6 +7,7 @@
 use std::fmt::{Display, Formatter, Write};
 use std::fs::{create_dir, File};
 use std::path::PathBuf;
+
 use chrono::{NaiveDate, Utc};
 use clap::{arg, Parser, ValueEnum};
 use uuid::Uuid;
@@ -55,9 +56,11 @@ fn get_name(args: &Args) -> String {
 fn render_header(id: &str, name: &str, date: &str, title: Option<&str>) -> String {
     let mut buf = String::new();
 
+    let _ = writeln!(&mut buf, "<!--");
     let _ = writeln!(&mut buf, "[ID]: # ({})", id);
     let _ = writeln!(&mut buf, "[DATE]: # ({})", date);
     let _ = writeln!(&mut buf, "[AUTHOR]: # ({})", name);
+    let _ = writeln!(&mut buf, "-->");
     let _ = writeln!(&mut buf, "");
     if let Some(title) = title {
         let _ = writeln!(&mut buf, "# {}", title);
@@ -154,7 +157,9 @@ fn main() {
 #[cfg(test)]
 mod tests {
     use chrono::NaiveDate;
+
     use crate::test_data::POST_DATA;
+
     use super::*;
 
     #[test]

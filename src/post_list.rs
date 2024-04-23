@@ -1,6 +1,9 @@
 use std::{fs, io};
 use std::path::{Path, PathBuf};
 
+use anyhow::Context;
+use anyhow::Result;
+
 pub struct PostList {
     pub root_dir: PathBuf,
     pub post_file: String,
@@ -29,7 +32,7 @@ impl PostList {
         Ok(posts)
     }
 
-    pub fn retrieve_dirs(&self) -> io::Result<Vec<(PathBuf, String)>> {
+    pub fn retrieve_dirs(&self) -> Result<Vec<(PathBuf, String)>> {
         // Per directory, we should have a file called post.md
         let dirs = Self::list_dirs(self.root_dir.as_path())?;
         // Filtering only the dirs with a post inside
@@ -37,9 +40,11 @@ impl PostList {
         Ok(post_dirs)
     }
 
-    fn list_dirs(posts_dir: &Path) -> io::Result<Vec<PathBuf>> {
+    fn list_dirs(posts_dir: &Path) -> Result<Vec<PathBuf>> {
         let mut dirs: Vec<PathBuf> = vec![];
-        let entries = fs::read_dir(posts_dir)?;
+        let entries = fs::read_dir(posts_dir)
+            .context(format!("Could not list dirs from [{}]", posts_dir.to_str().unwrap()))?;
+
         for entry in entries {
             if let Ok(path) = entry {
                 if let Ok(file_type) = path.file_type() {
@@ -62,8 +67,9 @@ impl PostList {
         post_dirs
     }
 
-    fn contains_file(dir: &PathBuf, base_name: &str) -> io::Result<Option<String>> {
-        let entries = fs::read_dir(dir)?;
+    fn contains_file(dir: &PathBuf, base_name: &str) -> Result<Option<String>> {
+        let entries = fs::read_dir(dir)
+            .context(format!("Could not read directory {}", dir.to_str().unwrap()))?;
         for entry in entries {
             let entry = entry?;
             if entry.file_type()?.is_file() {
