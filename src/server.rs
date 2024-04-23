@@ -234,7 +234,7 @@ pub async fn server_run(config: Config) -> Result<()> {
     let page_links = Arc::new(page_links);
 
     let config = Arc::new(config);
-    let (post_cache, content_cache) = match config.defaults.cache_enabled {
+    let (post_cache, content_cache) = match config.defaults.rendering_cache_enabled {
         true => {
             (Arc::new(Mutex::new(ContentCache::new())), Arc::new(Mutex::new(ContentCache::new())))
         }

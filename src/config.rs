@@ -25,7 +25,7 @@ pub struct Personal {
 pub struct Defaults {
     pub index_base_name: String,
     pub page_size: u32,
-    pub cache_enabled: bool,
+    pub rendering_cache_enabled: bool,
 }
 
 #[derive(Deserialize)]

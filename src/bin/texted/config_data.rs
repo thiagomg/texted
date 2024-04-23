@@ -20,7 +20,7 @@ pages_dir = "pages"
 [defaults]
 index_base_name = "index"
 page_size = 10
-cache_enabled = true
+rendering_cache_enabled = true
 
 [server]
 address = "0.0.0.0"
