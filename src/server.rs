@@ -3,13 +3,14 @@ use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 
 use anyhow::Result;
+use chrono::Duration;
 use ntex::web;
 use ntex::web::HttpRequest;
 use ntex_files::NamedFile;
 
 use crate::config::Config;
 use crate::content::Content;
-use crate::content_cache::ContentCache;
+use crate::content_cache::{ContentCache, Expire};
 use crate::post_processor::*;
 use crate::util::toml_date::TomlDate;
 
@@ -25,7 +26,7 @@ struct AppState {
 #[web::get("/view/{post}")]
 async fn view_wo_slash(path: web::types::Path<String>) -> web::HttpResponse {
     web::HttpResponse::TemporaryRedirect()
-        .header("Location", path.into_inner() + "/")
+        .header("Location", format!("{}/", path.into_inner()))
         .content_type("text/html; charset=utf-8")
         .finish()
 }
@@ -33,7 +34,7 @@ async fn view_wo_slash(path: web::types::Path<String>) -> web::HttpResponse {
 #[web::get("/page/{post}")]
 async fn page_wo_slash(path: web::types::Path<String>) -> web::HttpResponse {
     web::HttpResponse::TemporaryRedirect()
-        .header("Location", path.into_inner() + "/")
+        .header("Location", format!("{}/", path.into_inner()))
         .content_type("text/html; charset=utf-8")
         .finish()
 }
@@ -48,9 +49,9 @@ async fn page(page_name: web::types::Path<String>, state: web::types::State<Arc<
     let config = state.config.clone();
     let page_links = state.page_links.clone();
 
-    let rendered_page = match cache.get_page_or(&page_name, || {
+    let rendered_page = match cache.get_page_or(&page_name, Expire::Never, || {
         // TODO: Change to log
-        // println!("Rendering page {} from cache", page_name);
+        println!("Rendering page {} from file", page_name);
         open_content(&config, &page_links, "page.tpl", &page_name)
     }) {
         Ok(rendered_post) => {
@@ -78,9 +79,9 @@ async fn view(post_name: web::types::Path<String>, state: web::types::State<Arc<
     let config = state.config.clone();
     let post_links = state.post_links.clone();
 
-    let rendered_post = match cache.get_post_or(&post_name, || {
+    let rendered_post = match cache.get_post_or(&post_name, Expire::Never, || {
         // TODO: Change to log
-        // println!("Rendering post {} from cache", post_name);
+        println!("Rendering post {} from file", post_name);
         open_content(&config, &post_links, "view.tpl", &post_name)
     }) {
         Ok(rendered_post) => {
@@ -184,9 +185,9 @@ async fn index(req: web::HttpRequest, state: web::types::State<Arc<Mutex<AppStat
     let config = state.config.clone();
     let page_name = "-index-page";
 
-    let rendered_page = match cache.get_page_or(&page_name, || {
+    let rendered_page = match cache.get_page_or(&page_name, Expire::After(Duration::days(1)), || {
         // TODO: Change to log
-        // println!("Rendering page {} from cache", page_name);
+        println!("Rendering page {} from file", page_name);
         let TomlDate(blog_start_date) = state.config.personal.blog_start_date;
         let activity_start_year = state.config.personal.activity_start_year;
         render_index(req, state.post_links.len(), &config.paths.template_dir, activity_start_year, blog_start_date)

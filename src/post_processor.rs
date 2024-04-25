@@ -18,7 +18,7 @@ use crate::content::content_format::ContentFormat;
 use crate::content::content_renderer::{ContentRenderer, ImagePrefix, RenderOptions};
 use crate::content::html_renderer::HtmlRenderer;
 use crate::content::texted_renderer::TextedRenderer;
-use crate::content_cache::ContentCache;
+use crate::content_cache::{ContentCache, Expire};
 use crate::paginator::Paginator;
 use crate::post_list::PostList;
 use crate::query_string::QueryString;
@@ -201,9 +201,9 @@ pub fn retrieve_post_list(cache: &mut ContentCache<Content>, link_to_files: &Has
     let mut tag_map = HashMap::new();
 
     for (post_link, content_path) in link_to_files.iter() {
-        let content = cache.get_post_or(post_link, || {
+        let content = cache.get_post_or(post_link, Expire::Never, || {
             // TODO: Change to log
-            // println!("Rendering post preview from file for {}", post_link);
+            println!("Rendering post preview from file for {}", post_link);
             let content_file = ContentFile::from_file(post_link.clone(), content_path.clone())?;
             let img_prefix = ImagePrefix(format!("/view/{}", post_link));
             match content_file.format {
