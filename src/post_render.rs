@@ -61,7 +61,7 @@ pub fn render_post(md_text: &str, img_prefix: Option<&str>) -> io::Result<String
     };
     match markdown::to_html_with_options(buf.as_str(), &Options::gfm()) {
         Ok(x) => Ok(x),
-        Err(e) => Err(io::Error::new(ErrorKind::InvalidInput, e.as_str())),
+        Err(e) => Err(io::Error::new(ErrorKind::InvalidInput, e.reason.as_str())),
     }
 }
 
