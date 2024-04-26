@@ -9,6 +9,6 @@ mod paginator;
 mod content;
 mod view;
 pub mod post_render;
-mod util;
+pub mod util;
 mod content_cache;
 

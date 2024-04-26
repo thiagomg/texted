@@ -1,6 +1,6 @@
 [package]
 name = "texted"
-version = "0.2.5"
+version = "0.2.6"
 edition = "2021"
 authors = ["Thiago Massari Guedes"]
 license = "Apache-2.0"
@@ -13,16 +13,16 @@ description = "A markdown blog platform that lets you in control of your data"
 [dependencies]
 ntex = { version = "1.2.1", features = ["tokio"] }
 ntex-files = "1.0.0"
-serde = "1"
+serde = "1.0.198"
 ramhorns = "1.0.0"
 lazy_static = { version = "1.4.0", features = [] }
-regex = "1"
-markdown = "1.0.0-alpha.16"
+regex = "1.10.4"
+markdown = "1.0.0-alpha.17"
 chrono = "0.4.38"
 toml = "0.8.12"
-uuid = { version = "1", features = ["v4", "fast-rng"] }
-whoami = "1"
-clap = { version = "4.5", features = ["derive"] }
+uuid = { version = "1.8.0", features = ["v4", "fast-rng"] }
+whoami = "1.5.1"
+clap = { version = "4.5.4", features = ["derive"] }
 dirs = "5.0.1"
 serde_urlencoded = "0.7.1"
 anyhow = "1.0.82"

@@ -12,6 +12,8 @@ use chrono::{NaiveDate, Utc};
 use clap::{arg, Parser, ValueEnum};
 use uuid::Uuid;
 
+use texted::util::os_helper::get_name;
+
 mod test_data;
 
 #[derive(Parser, Debug)]
@@ -41,16 +43,12 @@ impl Display for PostOutput {
     }
 }
 
-fn get_name(args: &Args) -> String {
+fn get_author(args: &Args) -> String {
     if let Some(ref name) = args.name {
         return name.clone();
     }
 
-    let name = whoami::realname();
-    if name.is_empty() {
-        return whoami::username();
-    }
-    return name;
+    get_name()
 }
 
 fn render_header(id: &str, name: &str, date: &str, title: Option<&str>) -> String {
@@ -109,7 +107,7 @@ fn main() {
     let args = Args::parse();
 
     let id = Uuid::new_v4().to_string();
-    let name = get_name(&args);
+    let name = get_author(&args);
     let date = Utc::now();
     let date_str = date.format("%Y-%m-%d %H:%M:%S.000");
 

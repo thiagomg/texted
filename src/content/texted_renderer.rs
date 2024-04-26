@@ -1,13 +1,15 @@
 use std::io;
 use std::io::ErrorKind;
+use std::path::PathBuf;
+use std::str::Lines;
 
 use markdown::Options;
 
-use crate::content::Content;
+use crate::content::{Content, ContentHeader};
 use crate::content::content_file::ContentFile;
 use crate::content::content_format::ContentFormat;
 use crate::content::content_renderer::RenderOptions;
-use crate::content::parsing_utils::{extract_content, parse_texted_header, parse_title_markdown, remove_comments};
+use crate::content::parsing_utils::{extract_content, generate_header_from_file, parse_texted_header, parse_title_markdown, remove_comments};
 
 pub struct TextedRenderer {}
 
@@ -18,7 +20,7 @@ impl TextedRenderer {
         }
 
         let link = content_file.link.clone();
-        let (header, lines, maybe_line) = parse_texted_header(&content_file.file_path, content_file.raw_content.lines())?;
+        let (header, lines, maybe_line) = Self::parse_markdown_header(&content_file.file_path, content_file.raw_content.lines())?;
         let (title, lines, _title_line) = parse_title_markdown(lines, maybe_line);
         let content = extract_content(lines, &render_options);
 
@@ -35,6 +37,21 @@ impl TextedRenderer {
             rendered,
         })
     }
+
+    pub fn parse_markdown_header<'a>(file_name: &PathBuf, lines: Lines<'a>) -> io::Result<(ContentHeader, Lines<'a>, Option<&'a str>)> {
+        let lines_clone = lines.clone();
+        match parse_texted_header(file_name, lines) {
+            Ok((header, lines, maybe_line)) => {
+                return Ok((header, lines, maybe_line));
+            }
+            Err(_) => {
+                // Let's try generating from the file, if no header is available
+                let header = generate_header_from_file(file_name)?;
+                return Ok((header, lines_clone, Some("")));
+            }
+        }
+    }
+    // parse_texted_header
 
     fn render_markdown(md_text: &str, img_prefix: Option<&str>) -> io::Result<String> {
         let buf = remove_comments(md_text)?;
