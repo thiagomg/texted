@@ -4,7 +4,7 @@ use flate2::read::GzDecoder;
 use tar::Archive;
 
 pub fn decompress_files(output: &PathBuf) -> Result<(), std::io::Error> {
-    let tar_gz = include_bytes!("../../../res.tar.gz");
+    let tar_gz = include_bytes!(concat!(env!("OUT_DIR"), "/res.tar.gz"));
     let tar = GzDecoder::new(tar_gz.as_ref());
     let mut archive = Archive::new(tar);
     archive.unpack(output)?;

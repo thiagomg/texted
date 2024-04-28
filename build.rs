@@ -7,9 +7,10 @@ use flate2::write::GzEncoder;
 
 fn get_file_name(path: &PathBuf) -> PathBuf {
     let last = path.file_name().unwrap().to_str().unwrap();
-    let parent: PathBuf = path.parent().unwrap().into();
     let file_name = format!("{}.tar.gz", last);
-    parent.join(file_name)
+    let out_dir = env::var("OUT_DIR").unwrap();
+    let out_dir = PathBuf::from(out_dir);
+    out_dir.join(file_name)
 }
 
 fn delete_old_archive(path: &PathBuf) {
