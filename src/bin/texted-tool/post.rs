@@ -1,49 +1,15 @@
-/*
-[ID]: # (dbe35a35-7e40-480f-9e7b-409e8d6d77c7)
-[DATE]: # (2016-06-25 00:25:23.342)
-[AUTHOR]: # (thiago)
-*/
-
-use std::fmt::{Display, Formatter, Write};
+use std::fmt::Write;
 use std::fs::{create_dir, File};
 use std::path::PathBuf;
 
 use chrono::{NaiveDate, Utc};
-use clap::{arg, Parser, ValueEnum};
 use uuid::Uuid;
 
 use texted::util::os_helper::get_name;
 
-mod test_data;
+use crate::{PostArgs, PostOutput};
 
-#[derive(Parser, Debug)]
-#[command(version, about, long_about = None)]
-struct Args {
-    /// Name of the author. If empty, OS user real name is being used
-    #[arg(short, long)]
-    name: Option<String>,
-
-    #[arg(short, long)]
-    title: Option<String>,
-
-    #[arg(short, long, default_value_t = PostOutput::Stdout)]
-    output: PostOutput,
-}
-
-#[derive(Clone, Debug, ValueEnum)]
-enum PostOutput {
-    Stdout,
-    File,
-    Dir,
-}
-
-impl Display for PostOutput {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        write!(f, "")
-    }
-}
-
-fn get_author(args: &Args) -> String {
+fn get_author(args: &PostArgs) -> String {
     if let Some(ref name) = args.name {
         return name.clone();
     }
@@ -103,9 +69,7 @@ fn post_url_from_title(title: &str, date: &NaiveDate) -> String {
     format!("{}_{}", date, url)
 }
 
-fn main() {
-    let args = Args::parse();
-
+pub fn post_cmd(args: PostArgs) {
     let id = Uuid::new_v4().to_string();
     let name = get_author(&args);
     let date = Utc::now();

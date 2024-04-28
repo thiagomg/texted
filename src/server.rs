@@ -7,6 +7,7 @@ use chrono::Duration;
 use ntex::web;
 use ntex::web::HttpRequest;
 use ntex_files::NamedFile;
+use spdlog::{debug, info};
 
 use crate::config::Config;
 use crate::content::Content;
@@ -50,13 +51,11 @@ async fn page(page_name: web::types::Path<String>, state: web::types::State<Arc<
     let page_links = state.page_links.clone();
 
     let rendered_page = match cache.get_page_or(&page_name, Expire::Never, || {
-        // TODO: Change to log
-        println!("Rendering page {} from file", page_name);
+        info!("Rendering page {} from file", page_name);
         open_content(&config, &page_links, "page.tpl", &page_name)
     }) {
         Ok(rendered_post) => {
-            // TODO: Change to log
-            // println!("Retrieving page {} from cache", page_name);
+            debug!("Retrieving page {} from cache", page_name);
             rendered_post
         }
         Err(e) => {
@@ -80,13 +79,11 @@ async fn view(post_name: web::types::Path<String>, state: web::types::State<Arc<
     let post_links = state.post_links.clone();
 
     let rendered_post = match cache.get_post_or(&post_name, Expire::Never, || {
-        // TODO: Change to log
-        println!("Rendering post {} from file", post_name);
+        info!("Rendering post {} from file", post_name);
         open_content(&config, &post_links, "view.tpl", &post_name)
     }) {
         Ok(rendered_post) => {
-            // TODO: Change to log
-            // println!("Retrieving post {} from cache", post_name);
+            debug!("Retrieving post {} from cache", post_name);
             rendered_post
         }
         Err(e) => {
@@ -186,15 +183,13 @@ async fn index(req: web::HttpRequest, state: web::types::State<Arc<Mutex<AppStat
     let page_name = "-index-page";
 
     let rendered_page = match cache.get_page_or(&page_name, Expire::After(Duration::days(1)), || {
-        // TODO: Change to log
-        println!("Rendering page {} from file", page_name);
+        info!("Rendering page {} from file", page_name);
         let TomlDate(blog_start_date) = state.config.personal.blog_start_date;
         let activity_start_year = state.config.personal.activity_start_year;
         render_index(req, state.post_links.len(), &config.paths.template_dir, activity_start_year, blog_start_date)
     }) {
         Ok(rendered_post) => {
-            // TODO: Change to log
-            // println!("Retrieving page {} from cache", page_name);
+            debug!("Retrieving page {} from cache", page_name);
             rendered_post
         }
         Err(e) => {
@@ -214,14 +209,12 @@ pub async fn server_run(config: Config) -> Result<()> {
     // List post files and generate list of link -> post file
     let post_link_vec: Vec<PostLink> = list_post_files(&config.paths.posts_dir, index_base_name)?;
     for file in post_link_vec.iter() {
-        // TODO: Change to log
-        println!("Post: {:?}", file.post_name);
+        info!("Post added to listing: {:?}", file.post_name);
     }
 
     let page_link_vec: Vec<PostLink> = list_post_files(&config.paths.pages_dir, index_base_name)?;
     for file in page_link_vec.iter() {
-        // TODO: Change to log
-        println!("Page: {:?}", file.post_name);
+        info!("Page found: {:?}", file.post_name);
     }
 
     let post_links: HashMap<_, _> = post_link_vec.into_iter()

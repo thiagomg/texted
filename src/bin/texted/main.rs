@@ -2,12 +2,13 @@ use std::path::PathBuf;
 
 use anyhow::Result;
 use clap::Parser;
+use spdlog::{info, warn};
 
+use texted::logger::configure_logger;
 use texted::server::server_run;
 
-use crate::config::{generate_cfg, open_config};
+use crate::config::open_config;
 
-mod config_data;
 mod config;
 
 const CFG_FILE_NAME: &str = "texted.toml";
@@ -18,10 +19,6 @@ struct Args {
     /// Config path
     #[arg(short, long)]
     config_path: Option<String>,
-
-    /// Generates texted config. Use with -c to specify the file path
-    #[arg(long)]
-    generate_cfg: bool,
 }
 
 #[ntex::main]
@@ -29,18 +26,21 @@ async fn main() -> Result<()> {
     let args = Args::parse();
     let config_path = args.config_path.and_then(|x| Some(PathBuf::from(x)));
 
-    if args.generate_cfg {
-        let _ = generate_cfg(&config_path);
-        return Ok(());
-    }
-
     let config = match open_config(config_path) {
         Ok(config) => config,
         Err(err) => {
-            println!("{}", err);
-            println!("Please run texted --help");
+            eprintln!("{}", err);
+            eprintln!("Please run texted --help");
             return Ok(());
         }
     };
+
+    if let Err(err) = configure_logger(&config) {
+        warn!("Error creating logger sinks. Using console instead. Desc={}", err);
+    }
+
+    info!("Starting Texted =-=-=-=-=-=-=-=-=-=-=-=-=-=-=-");
+    info!("Listening on {}:{}", config.server.address, config.server.port);
+
     server_run(config).await
 }

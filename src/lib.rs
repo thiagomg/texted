@@ -11,4 +11,5 @@ mod view;
 pub mod post_render;
 pub mod util;
 mod content_cache;
+pub mod logger;
 

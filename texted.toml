@@ -1,0 +1,31 @@
+[personal]
+activity_start_year = 2000
+blog_start_date = 2024-04-22
+
+# For the file locations, If you want it to be relative to the executable directory
+# use ${exe_dir}/location
+[paths]
+template_dir = "res/template"
+public_dir = "res/public"
+posts_dir = "res/posts"
+pages_dir = "res/pages"
+
+# Default file name if using directory instead of files
+[defaults]
+index_base_name = "index"
+page_size = 10
+rendering_cache_enabled = true
+
+[server]
+address = "0.0.0.0"
+port = 8001
+
+# Comment [log] block to disable log generation
+[log]
+# change to true to see in the stdout the content of the log file, in addition to the generated log file
+# The files rotate by day, max of 60 days. Not yet configurable
+log_to_console = false
+# Accepted values = Critical, Error, Warn, Info, Debug, Trace
+level = "Info"
+# Default value is the default cache location for the current OS
+# location = "whatever-is-the-non-def-location"

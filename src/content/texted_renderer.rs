@@ -135,7 +135,6 @@ mod tests {
 
         let prefix = ImagePrefix { 0: "image/".to_string() };
         let content = TextedRenderer::render(&content, RenderOptions::PreviewOnly(prefix)).unwrap();
-        println!("[{}]", &content.rendered);
         assert_eq!(content.rendered, r##"<p>How to be a great software engineer?</p>
 <p>Someone asked me this question today and I didn’t have an answer. After thinking for a while, I came up with a list of what I try to do myself.</p>
 <p>Disclaimer: I don't think I am a great engineer, but I would love to have listened to that myself when I started my career, over 20 years ago.</p>

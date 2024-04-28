@@ -10,6 +10,7 @@ use ntex::web;
 use ntex::web::{Error, HttpRequest};
 use ntex_files::NamedFile;
 use ramhorns::Template;
+use spdlog::info;
 
 use crate::config::Config;
 use crate::content::Content;
@@ -202,8 +203,7 @@ pub fn retrieve_post_list(cache: &mut ContentCache<Content>, link_to_files: &Has
 
     for (post_link, content_path) in link_to_files.iter() {
         let content = cache.get_post_or(post_link, Expire::Never, || {
-            // TODO: Change to log
-            println!("Rendering post preview from file for {}", post_link);
+            info!("Rendering post preview from file for {}", post_link);
             let content_file = ContentFile::from_file(post_link.clone(), content_path.clone())?;
             let img_prefix = ImagePrefix(format!("/view/{}", post_link));
             match content_file.format {

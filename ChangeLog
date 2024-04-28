@@ -1,0 +1,7 @@
+Version 0.2.6
+- Better error handling when configuration is incorrect
+- New log configuration added + log support
+- Renamed texted-post to texted-tool
+- texted-tool now bootstraps a new blog
+- generate-cfg option removed from texted
+- Readme updated with new instructions

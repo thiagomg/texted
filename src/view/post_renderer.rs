@@ -95,7 +95,6 @@ POST_CONTENT=[{{{post_content}}}]
             rendered: "<post-content>".to_string(),
         };
         let res = post_renderer.render(&content);
-        println!("post: [{}]", res);
         assert_eq!(res, r##"
 TITLE=[<post-title>]
 AUTHOR=[&lt;Thiago&gt;]

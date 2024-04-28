@@ -35,11 +35,29 @@ pub struct Server {
 }
 
 #[derive(Deserialize)]
+pub struct Log {
+    pub level: LogLevel,
+    pub log_to_console: bool,
+    pub location: Option<PathBuf>,
+}
+
+#[derive(Deserialize, Copy, Clone)]
+pub enum LogLevel {
+    Critical = 0,
+    Error,
+    Warn,
+    Info,
+    Debug,
+    Trace,
+}
+
+#[derive(Deserialize)]
 pub struct Config {
     pub personal: Personal,
     pub paths: Paths,
     pub defaults: Defaults,
     pub server: Server,
+    pub log: Option<Log>,
 }
 
 fn parse_path(path: PathBuf) -> PathBuf {
@@ -61,7 +79,8 @@ pub fn read_config(cfg_path: &PathBuf) -> io::Result<Config> {
 
     let mut cfg: Config = match toml::from_str::<Config>(cfg_content.as_str()) {
         Ok(cfg) => cfg,
-        Err(e) => return Err(io::Error::new(ErrorKind::InvalidData, format!("Error parsing configuration file: {}", e.message()))),
+        Err(e) => return Err(io::Error::new(
+            ErrorKind::InvalidData, format!("Error parsing configuration file: {}", e))),
     };
 
     cfg.paths = Paths {

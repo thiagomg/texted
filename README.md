@@ -18,19 +18,45 @@ Why did I create one blog system instead of using some existing blog platform?
 cargo install texted
 ```
 
-Generating a sample configuration
+### Bootstrapping a new blog
 
 ```bash
-# Generates a config file in the current directory
-texted --generate-cfg -c texted.toml
-
-# Or to generate in the default config directory
-texted --generate-cfg
+# Let's create a new directory for our new blog
+mkdir ~/my-awesome-blog && cd ~/my-awesome-blog
+# And now create the skeleton of a fully functional blog
+texted-tool bootstrap --out-dir .
 ```
 
-### Bootstrapping
+Now, let's run and test it.
 
-Bootstrapping is not ready yet, but you can just download this repository and point the configuration to the [res directory](https://gitlab.com/thiagomg/texted/-/tree/main/res?ref_type=heads)
+```bash
+# Inside the same ~/my-awesome-blog directory, run
+texted
+```
+
+And open in your browser http://127.0.0.1:8001/
+
+### Adding a new post
+
+Texted by default caches all urls and posts for best performance. Please quit texted and run again to see new posts in the listing.
+If you want to disable rendering cache to see changes in the post content without restarting, change
+`rendering_cache_enabled = false` in the texted.toml configuration file
+
+
+```bash
+# Still inside the same ~/my-awesome-blog directory, run
+pushd posts/
+
+# This will create one directory such as 20240428_how_to_write_a_new_blog_post
+# with a file index.md inside.
+texted-tool post --title "How to write a new blog post" -o dir
+
+# And let's run texted again
+popd
+texted
+```
+
+You now have a new post available in the post list
 
 ## Building from sources
 
