@@ -1,4 +1,4 @@
-Version 0.2.7
+Version 0.3.0
 - Added support for different markdown names
 - Added support for breaking tags other than <!-- more -->
 - Added support for auto breaking posts after a given number of lines
