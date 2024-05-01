@@ -23,7 +23,9 @@ pub struct Personal {
 
 #[derive(Deserialize)]
 pub struct Defaults {
-    pub index_base_name: String,
+    pub index_base_name: Option<String>,
+    pub summary_line_count: Option<i32>,
+    pub summary_line_tag: Option<String>,
     pub page_size: u32,
     pub rendering_cache_enabled: bool,
 }

@@ -24,7 +24,7 @@ impl ContentRenderer for HtmlRenderer {
         let content = extract_content(lines, &render_options);
 
         let rendered = match render_options {
-            RenderOptions::PreviewOnly(ImagePrefix(prefix)) => Self::change_images(&prefix, &content),
+            RenderOptions::PreviewOnly(_preview_opt, ImagePrefix(prefix)) => Self::change_images(&prefix, &content),
             RenderOptions::FullContent => content,
         };
 

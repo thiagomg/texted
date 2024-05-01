@@ -12,6 +12,7 @@ use spdlog::{debug, info};
 use crate::config::Config;
 use crate::content::Content;
 use crate::content_cache::{ContentCache, Expire};
+use crate::post_list::PostListType;
 use crate::post_processor::*;
 use crate::util::toml_date::TomlDate;
 
@@ -104,7 +105,8 @@ async fn list(req: HttpRequest, state: web::types::State<Arc<Mutex<AppState>>>) 
     let config = state.config.clone();
     let post_links = state.post_links.clone();
 
-    let rendered_posts = match retrieve_post_list(&mut cache, &post_links, None) {
+    let preview_opt = get_preview_option(&config);
+    let rendered_posts = match retrieve_post_list(&mut cache, &post_links, None, &preview_opt) {
         Ok(posts) => posts,
         Err(e) => return web::HttpResponse::InternalServerError()
             .body(format!("Error listing posts: {}", e)),
@@ -131,7 +133,8 @@ async fn list_with_tags(req: HttpRequest, path: web::types::Path<String>, state:
     let config = state.config.clone();
     let post_links = state.post_links.clone();
 
-    let rendered_posts = match retrieve_post_list(&mut cache, &post_links, Some(tag)) {
+    let preview_opt = get_preview_option(&config);
+    let rendered_posts = match retrieve_post_list(&mut cache, &post_links, Some(tag), &preview_opt) {
         Ok(posts) => posts,
         Err(e) => return web::HttpResponse::InternalServerError()
             .body(format!("Error listing posts: {}", e)),
@@ -204,15 +207,18 @@ async fn index(req: web::HttpRequest, state: web::types::State<Arc<Mutex<AppStat
 }
 
 pub async fn server_run(config: Config) -> Result<()> {
-    let index_base_name = config.defaults.index_base_name.as_str();
+    let index_base_name = match config.defaults.index_base_name {
+        None => PostListType::AnyContentFile,
+        Some(ref base_name) => PostListType::IndexBaseName(base_name.clone())
+    };
 
     // List post files and generate list of link -> post file
-    let post_link_vec: Vec<PostLink> = list_post_files(&config.paths.posts_dir, index_base_name)?;
+    let post_link_vec: Vec<PostLink> = list_post_files(&config.paths.posts_dir, &index_base_name)?;
     for file in post_link_vec.iter() {
         info!("Post added to listing: {:?}", file.post_name);
     }
 
-    let page_link_vec: Vec<PostLink> = list_post_files(&config.paths.pages_dir, index_base_name)?;
+    let page_link_vec: Vec<PostLink> = list_post_files(&config.paths.pages_dir, &index_base_name)?;
     for file in page_link_vec.iter() {
         info!("Page found: {:?}", file.post_name);
     }

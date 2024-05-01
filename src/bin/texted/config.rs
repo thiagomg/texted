@@ -31,6 +31,7 @@ pub(crate) fn open_config(cfg_path: Option<PathBuf>) -> Result<Config, String> {
         None => return Err("Could not find Texted configuration".to_string()),
         Some(x) => x,
     });
+
     println!("Current dir: {}", env::current_dir().unwrap().to_str().unwrap());
     println!("Reading config from {}", config_path.to_str().unwrap());
     let mut config = match read_config(&config_path) {

@@ -25,7 +25,7 @@ impl TextedRenderer {
         let content = extract_content(lines, &render_options);
 
         let prefix: Option<&str> = match render_options {
-            RenderOptions::PreviewOnly(ref img_prefix) => Some(img_prefix.0.as_str()),
+            RenderOptions::PreviewOnly(ref _preview_opt, ref img_prefix) => Some(img_prefix.0.as_str()),
             RenderOptions::FullContent => None,
         };
         let rendered = Self::render_markdown(&content, prefix)?;
@@ -118,7 +118,7 @@ impl TextedRenderer {
 mod tests {
     use std::path::PathBuf;
 
-    use crate::content::content_renderer::ImagePrefix;
+    use crate::content::content_renderer::{BreakTag, ImagePrefix, PreviewOptions};
     use crate::test_data::POST_DATA_MD;
 
     use super::*;
@@ -134,7 +134,8 @@ mod tests {
         };
 
         let prefix = ImagePrefix { 0: "image/".to_string() };
-        let content = TextedRenderer::render(&content, RenderOptions::PreviewOnly(prefix)).unwrap();
+        let preview_opt = PreviewOptions { max_line_count: None, tag_based: BreakTag("<!-- more -->".to_string()) };
+        let content = TextedRenderer::render(&content, RenderOptions::PreviewOnly(preview_opt, prefix)).unwrap();
         assert_eq!(content.rendered, r##"<p>How to be a great software engineer?</p>
 <p>Someone asked me this question today and I didn’t have an answer. After thinking for a while, I came up with a list of what I try to do myself.</p>
 <p>Disclaimer: I don't think I am a great engineer, but I would love to have listened to that myself when I started my career, over 20 years ago.</p>

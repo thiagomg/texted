@@ -16,12 +16,12 @@ use crate::config::Config;
 use crate::content::Content;
 use crate::content::content_file::ContentFile;
 use crate::content::content_format::ContentFormat;
-use crate::content::content_renderer::{ContentRenderer, ImagePrefix, RenderOptions};
+use crate::content::content_renderer::{BreakTag, ContentRenderer, ImagePrefix, MaxLineCount, PreviewOptions, RenderOptions};
 use crate::content::html_renderer::HtmlRenderer;
 use crate::content::texted_renderer::TextedRenderer;
 use crate::content_cache::{ContentCache, Expire};
 use crate::paginator::Paginator;
-use crate::post_list::PostList;
+use crate::post_list::{PostList, PostListType};
 use crate::query_string::QueryString;
 use crate::view::list_renderer::ListRenderer;
 use crate::view::post_renderer::PostRenderer;
@@ -79,11 +79,11 @@ pub struct PostLink {
     pub post_path: PathBuf,
 }
 
-pub fn list_post_files(root_dir: &PathBuf, post_file: &str) -> Result<Vec<PostLink>> {
+pub fn list_post_files(root_dir: &PathBuf, post_file: &PostListType) -> Result<Vec<PostLink>> {
     let root_dir = root_dir.clone();
     let post_list = PostList {
         root_dir,
-        post_file: post_file.to_string(),
+        post_file: post_file.clone(),
     };
 
     let dirs = post_list.retrieve_dirs()?;
@@ -197,7 +197,7 @@ pub struct PostListWithTags {
     tag_map: HashMap<String, i32>,
 }
 
-pub fn retrieve_post_list(cache: &mut ContentCache<Content>, link_to_files: &HashMap<String, PathBuf>, tag_to_filter: Option<String>) -> io::Result<PostListWithTags> {
+pub fn retrieve_post_list(cache: &mut ContentCache<Content>, link_to_files: &HashMap<String, PathBuf>, tag_to_filter: Option<String>, preview_opt: &PreviewOptions) -> io::Result<PostListWithTags> {
     let mut contents = vec![];
     let mut tag_map = HashMap::new();
 
@@ -207,8 +207,8 @@ pub fn retrieve_post_list(cache: &mut ContentCache<Content>, link_to_files: &Has
             let content_file = ContentFile::from_file(post_link.clone(), content_path.clone())?;
             let img_prefix = ImagePrefix(format!("/view/{}", post_link));
             match content_file.format {
-                ContentFormat::Texted => TextedRenderer::render(&content_file, RenderOptions::PreviewOnly(img_prefix)),
-                ContentFormat::Html => HtmlRenderer::render(&content_file, RenderOptions::PreviewOnly(img_prefix)),
+                ContentFormat::Texted => TextedRenderer::render(&content_file, RenderOptions::PreviewOnly(preview_opt.clone(), img_prefix)),
+                ContentFormat::Html => HtmlRenderer::render(&content_file, RenderOptions::PreviewOnly(preview_opt.clone(), img_prefix)),
             }
         })?;
 
@@ -273,6 +273,22 @@ pub fn render_list(config: &Config, posts: PostListWithTags, cur_page: u32) -> i
     Ok(res)
 }
 
+pub fn get_preview_option(config: &Config) -> PreviewOptions {
+    let mut max_line_count = None;
+    let mut tag = "<!-- more -->";
+
+    if let Some(ref line_tag) = config.defaults.summary_line_tag {
+        tag = &line_tag;
+    }
+    if let Some(ref line_count) = config.defaults.summary_line_count {
+        max_line_count = Some(MaxLineCount(*line_count));
+    }
+
+    PreviewOptions {
+        max_line_count,
+        tag_based: BreakTag(tag.to_string()),
+    }
+}
 
 #[cfg(test)]
 mod tests {
@@ -280,7 +296,8 @@ mod tests {
 
     #[test]
     fn test_extract_last() {
-        let posts = list_post_files(&PathBuf::from("res/posts"), "index.md").unwrap();
+        let list_type = PostListType::IndexBaseName("index".to_string());
+        let posts = list_post_files(&PathBuf::from("res/posts"), &list_type).unwrap();
         for post in posts {
             println!("{:?}", &post);
         }

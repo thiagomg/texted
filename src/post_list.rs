@@ -6,7 +6,14 @@ use anyhow::Result;
 
 pub struct PostList {
     pub root_dir: PathBuf,
-    pub post_file: String,
+    pub post_file: PostListType,
+}
+
+#[derive(Clone)]
+pub enum PostListType {
+    // Only list files that the name contains a given base name
+    IndexBaseName(String),
+    AnyContentFile,
 }
 
 impl PostList {
@@ -57,7 +64,7 @@ impl PostList {
         Ok(dirs)
     }
 
-    fn filter_dirs(post_file: &str, dirs: Vec<PathBuf>) -> Vec<(PathBuf, String)> {
+    fn filter_dirs(post_file: &PostListType, dirs: Vec<PathBuf>) -> Vec<(PathBuf, String)> {
         let mut post_dirs = vec![];
         for dir in dirs {
             if let Some(file_name) = Self::contains_file(&dir, post_file).unwrap() {
@@ -67,15 +74,24 @@ impl PostList {
         post_dirs
     }
 
-    fn contains_file(dir: &PathBuf, base_name: &str) -> Result<Option<String>> {
+    fn contains_file(dir: &PathBuf, base_name: &PostListType) -> Result<Option<String>> {
         let entries = fs::read_dir(dir)
             .context(format!("Could not read directory {}", dir.to_str().unwrap()))?;
         for entry in entries {
             let entry = entry?;
             if entry.file_type()?.is_file() {
                 let file_name = entry.file_name().to_str().unwrap().to_string();
-                if file_name.contains(base_name) {
-                    return Ok(Some(file_name.to_string()));
+                match base_name {
+                    PostListType::IndexBaseName(base_name) => {
+                        if file_name.contains(base_name) {
+                            return Ok(Some(file_name.to_string()));
+                        }
+                    }
+                    PostListType::AnyContentFile => {
+                        if file_name.ends_with(".md") || file_name.ends_with(".htm") || file_name.ends_with(".html") {
+                            return Ok(Some(file_name.to_string()));
+                        }
+                    }
                 }
             }
         }

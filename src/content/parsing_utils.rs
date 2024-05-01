@@ -181,14 +181,21 @@ pub fn parse_title_html<'a>(lines: Lines<'a>, mut maybe_line: Option<&'a str>) -
 
 pub fn extract_content(mut lines: Lines, render_options: &RenderOptions) -> String {
     match render_options {
-        RenderOptions::PreviewOnly(_img_prefix) => {
+        RenderOptions::PreviewOnly(preview_opt, _img_prefix) => {
             let mut content = String::new();
+            let mut counter = 0;
             while let Some(line) = lines.next() {
-                if line.contains("<!-- more -->") {
+                if let Some(ref line_count) = preview_opt.max_line_count {
+                    if counter >= line_count.0 {
+                        break;
+                    }
+                }
+                if line.contains(&preview_opt.tag_based.0) {
                     break;
                 }
                 content.push_str(line);
                 content.push('\n');
+                counter += 1;
             }
             content
         }
@@ -336,17 +343,12 @@ mod tests {
         let content = r##"
 -->        "##;
 
-        let (header, _lines, _next_line) = parse_texted_header(&file_name, content.lines()).unwrap();
-        let date = NaiveDate::from_ymd_opt(2024, 02, 12).unwrap();
-        let time = NaiveTime::from_hms_opt(22, 54, 00).unwrap();
-        let expected = ContentHeader {
-            file_name: PathBuf::from("posts/20200522_how_to_write_a_code_review/index.md"),
-            id: PostId("21c1e9ad-4ebb-4168-a543-fbf77cc35a85".to_string()),
-            date: NaiveDateTime::new(date, time),
-            author: "thiago".to_string(),
-            tags: vec![],
-        };
-        assert_eq!(header, expected);
+        let res = parse_texted_header(&file_name, content.lines());
+        assert!(res.is_err());
+        if let Err(err) = res {
+            assert_eq!(err.kind(), ErrorKind::InvalidData);
+            assert_eq!(err.to_string(), "Invalid texted header");
+        }
     }
 
     #[test]

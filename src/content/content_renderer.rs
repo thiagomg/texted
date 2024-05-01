@@ -7,8 +7,20 @@ use crate::content::content_file::ContentFile;
 pub struct ImagePrefix(pub String);
 
 #[derive(Clone)]
+pub struct MaxLineCount(pub i32);
+
+#[derive(Clone)]
+pub struct BreakTag(pub String);
+
+#[derive(Clone)]
+pub struct PreviewOptions {
+    pub max_line_count: Option<MaxLineCount>,
+    pub tag_based: BreakTag,
+}
+
+#[derive(Clone)]
 pub enum RenderOptions {
-    PreviewOnly(ImagePrefix),
+    PreviewOnly(PreviewOptions, ImagePrefix),
     FullContent,
 }
 

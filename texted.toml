@@ -12,7 +12,11 @@ pages_dir = "res/pages"
 
 # Default file name if using directory instead of files
 [defaults]
-index_base_name = "index"
+# If you want to filter posts to use only index.*, uncomment the next line
+# index_base_name = "index"
+summary_line_tag = "<!-- more -->"
+# Uncomment next line to auto break posts after a certain number of lines
+# summary_line_count = 6
 page_size = 10
 rendering_cache_enabled = true
 
@@ -24,7 +28,7 @@ port = 8001
 [log]
 # change to true to see in the stdout the content of the log file, in addition to the generated log file
 # The files rotate by day, max of 60 days. Not yet configurable
-log_to_console = false
+log_to_console = true
 # Accepted values = Critical, Error, Warn, Info, Debug, Trace
 level = "Info"
 # Default value is the default cache location for the current OS
