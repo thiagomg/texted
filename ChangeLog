@@ -1,3 +1,7 @@
+Version 0.3.1
+- texted-tool now removes especial chars from the file name
+- texted-tool added tags to the post template
+
 Version 0.3.0
 - Added support for different markdown names
 - Added support for breaking tags other than <!-- more -->

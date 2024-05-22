@@ -1,6 +1,6 @@
 [package]
 name = "texted"
-version = "0.3.0"
+version = "0.3.1"
 edition = "2021"
 authors = ["Thiago Massari Guedes"]
 license = "Apache-2.0"
@@ -34,3 +34,4 @@ anyhow = "1.0.82"
 spdlog-rs = "0.3.13"
 flate2 = "1.0.29"
 tar = "0.4.40"
+unidecode = "0.3.0"

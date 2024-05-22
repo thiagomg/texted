@@ -24,6 +24,7 @@ fn render_header(id: &str, name: &str, date: &str, title: Option<&str>) -> Strin
     let _ = writeln!(&mut buf, "[ID]: # ({})", id);
     let _ = writeln!(&mut buf, "[DATE]: # ({})", date);
     let _ = writeln!(&mut buf, "[AUTHOR]: # ({})", name);
+    let _ = writeln!(&mut buf, "[TAGS]: # ()");
     let _ = writeln!(&mut buf, "-->");
     let _ = writeln!(&mut buf, "");
     if let Some(title) = title {
@@ -31,6 +32,7 @@ fn render_header(id: &str, name: &str, date: &str, title: Option<&str>) -> Strin
     } else {
         let _ = writeln!(&mut buf, "# Replace with title");
     }
+    let _ = writeln!(&mut buf, "");
     buf
 }
 
@@ -49,7 +51,7 @@ fn render_body() -> String {
 
 fn post_url_from_title(title: &str, date: &NaiveDate) -> String {
     let alpha_chars: String = title.chars()
-        .filter(|&c| c.is_alphabetic() || c == ' ')
+        .filter(|&c| c.is_alphanumeric() || c == ' ')
         .map(|c| if c == ' ' { '_' } else { c })
         .map(|c| c.to_ascii_lowercase())
         .collect();
@@ -64,6 +66,7 @@ fn post_url_from_title(title: &str, date: &NaiveDate) -> String {
         prev_char = Some(c);
     }
 
+    let url = unidecode::unidecode(&url);
     let date = date.format("%Y%m%d");
 
     format!("{}_{}", date, url)
@@ -139,8 +142,8 @@ mod tests {
     fn test_url_from_title() {
         //let date = Utc::now();
         let date = NaiveDate::from_ymd_opt(2024, 02, 29).unwrap();
-        let title = "Post title of mine - dir";
+        let title = "Post title of mine ábaco - dir2";
         let url = post_url_from_title(title, &date);
-        assert_eq!(url, "20240229_post_title_of_mine_dir");
+        assert_eq!(url, "20240229_post_title_of_mine_abaco_dir2");
     }
 }
