@@ -33,3 +33,7 @@ log_to_console = true
 level = "Info"
 # Default value is the default cache location for the current OS
 # location = "whatever-is-the-non-def-location"
+
+[metrics]
+# Default value is the default cache location for the current OS
+# location = "whatever-is-the-non-def-location"

@@ -50,5 +50,16 @@ pub(crate) fn open_config(cfg_path: Option<PathBuf>) -> Result<Config, String> {
         println!("Log disabled. Using stdout");
     }
 
+    if let Some(mut metrics) = config.metrics {
+        let location = metrics.location.unwrap_or_else(|| {
+            dirs::cache_dir().unwrap().join("Texted").join("metrics").join("metrics.log")
+        });
+        metrics.location = Some(location);
+        println!("Metrics enabled. Files will be written in {}", metrics.location.as_ref().unwrap().to_str().unwrap());
+        config.metrics = Some(metrics);
+    } else {
+        println!("Metrics disabled.");
+    }
+
     Ok(config)
 }

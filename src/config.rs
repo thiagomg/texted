@@ -54,12 +54,18 @@ pub enum LogLevel {
 }
 
 #[derive(Deserialize)]
+pub struct Metrics {
+    pub location: Option<PathBuf>,
+}
+
+#[derive(Deserialize)]
 pub struct Config {
     pub personal: Personal,
     pub paths: Paths,
     pub defaults: Defaults,
     pub server: Server,
     pub log: Option<Log>,
+    pub metrics: Option<Metrics>,
 }
 
 fn parse_path(path: PathBuf) -> PathBuf {

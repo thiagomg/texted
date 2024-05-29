@@ -7,11 +7,12 @@ use chrono::Duration;
 use ntex::web;
 use ntex::web::HttpRequest;
 use ntex_files::NamedFile;
-use spdlog::{debug, info};
+use spdlog::{debug, error, info};
 
 use crate::config::Config;
 use crate::content::Content;
 use crate::content_cache::{ContentCache, Expire};
+use crate::metrics::Metrics;
 use crate::post_list::PostListType;
 use crate::post_processor::*;
 use crate::util::toml_date::TomlDate;
@@ -22,6 +23,7 @@ struct AppState {
     config: Arc<Config>,
     post_cache: Arc<Mutex<ContentCache<String>>>,
     content_cache: Arc<Mutex<ContentCache<Content>>>,
+    metrics: Option<Arc<Mutex<Metrics>>>,
 }
 
 // Begin: Redirect region --------
@@ -75,6 +77,14 @@ async fn view(post_name: web::types::Path<String>, state: web::types::State<Arc<
     let post_name = post_name.into_inner();
 
     let state = state.lock().unwrap();
+
+    if let Some(ref metrics) = state.metrics {
+        match metrics.lock().unwrap().add(&post_name, "127.0.0.1") {
+            Ok(_) => {}
+            Err(e) => error!("Error writing metrics: {}", e),
+        };
+    }
+
     let mut cache = state.post_cache.lock().unwrap();
     let config = state.config.clone();
     let post_links = state.post_links.clone();
@@ -243,6 +253,15 @@ pub async fn server_run(config: Config) -> Result<()> {
         }
     };
 
+    let metrics = if let Some(ref metrics_cfg) = config.metrics {
+        // When configuration is loaded, we already set a location if the metrics section is defined
+        let location = metrics_cfg.location.as_ref().unwrap();
+        let metrics = Metrics::new(&location)?;
+        Some(Arc::new(Mutex::new(metrics)))
+    } else {
+        None
+    };
+
     let bind_addr = config.server.address.clone();
     let bind_port = config.server.port;
     let app_state = Arc::new(Mutex::new(AppState {
@@ -251,6 +270,7 @@ pub async fn server_run(config: Config) -> Result<()> {
         config,
         post_cache,
         content_cache,
+        metrics,
     }));
 
     web::HttpServer::new(move || {
