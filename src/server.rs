@@ -8,11 +8,12 @@ use ntex::web;
 use ntex::web::HttpRequest;
 use ntex_files::NamedFile;
 use spdlog::{debug, error, info};
+use tokio::sync::mpsc::Sender;
 
 use crate::config::Config;
 use crate::content::Content;
 use crate::content_cache::{ContentCache, Expire};
-use crate::metrics::Metrics;
+use crate::metrics::{MetricEvent, MetricHandler, MetricWriter};
 use crate::post_list::PostListType;
 use crate::post_processor::*;
 use crate::util::toml_date::TomlDate;
@@ -23,7 +24,7 @@ struct AppState {
     config: Arc<Config>,
     post_cache: Arc<Mutex<ContentCache<String>>>,
     content_cache: Arc<Mutex<ContentCache<Content>>>,
-    metrics: Option<Arc<Mutex<Metrics>>>,
+    metric_sender: Option<Sender<MetricEvent>>,
 }
 
 // Begin: Redirect region --------
@@ -73,13 +74,19 @@ async fn page(page_name: web::types::Path<String>, state: web::types::State<Arc<
 }
 
 #[web::get("/view/{post}/")]
-async fn view(post_name: web::types::Path<String>, state: web::types::State<Arc<Mutex<AppState>>>) -> web::HttpResponse {
+async fn view(
+    req: HttpRequest,
+    post_name: web::types::Path<String>,
+    state: web::types::State<Arc<Mutex<AppState>>>,
+) -> web::HttpResponse {
     let post_name = post_name.into_inner();
-
     let state = state.lock().unwrap();
-
-    if let Some(ref metrics) = state.metrics {
-        match metrics.lock().unwrap().add(&post_name, "127.0.0.1") {
+    let origin: String = req.peer_addr().map_or("".to_string(), |x| format!("{}", x));
+    if let Some(ref metric) = state.metric_sender {
+        match metric.send(MetricEvent {
+            post_name: post_name.clone(),
+            origin,
+        }).await {
             Ok(_) => {}
             Err(e) => error!("Error writing metrics: {}", e),
         };
@@ -245,21 +252,26 @@ pub async fn server_run(config: Config) -> Result<()> {
 
     let config = Arc::new(config);
     let (post_cache, content_cache) = match config.defaults.rendering_cache_enabled {
-        true => {
-            (Arc::new(Mutex::new(ContentCache::new())), Arc::new(Mutex::new(ContentCache::new())))
-        }
-        false => {
-            (Arc::new(Mutex::new(ContentCache::non_caching())), Arc::new(Mutex::new(ContentCache::non_caching())))
-        }
+        true => (
+            Arc::new(Mutex::new(ContentCache::new())),
+            Arc::new(Mutex::new(ContentCache::new()))
+        ),
+        false => (
+            Arc::new(Mutex::new(ContentCache::non_caching())),
+            Arc::new(Mutex::new(ContentCache::non_caching()))
+        )
     };
 
-    let metrics = if let Some(ref metrics_cfg) = config.metrics {
+
+    let (metric_sender, _metrics) = if let Some(ref metrics_cfg) = config.metrics {
         // When configuration is loaded, we already set a location if the metrics section is defined
         let location = metrics_cfg.location.as_ref().unwrap();
-        let metrics = Metrics::new(&location)?;
-        Some(Arc::new(Mutex::new(metrics)))
+        let metrics = MetricWriter::new(&location)?;
+        let metric_handler = MetricHandler::new(metrics);
+        let sender = metric_handler.new_sender();
+        (Some(sender), Some(metric_handler))
     } else {
-        None
+        (None, None)
     };
 
     let bind_addr = config.server.address.clone();
@@ -270,7 +282,7 @@ pub async fn server_run(config: Config) -> Result<()> {
         config,
         post_cache,
         content_cache,
-        metrics,
+        metric_sender,
     }));
 
     web::HttpServer::new(move || {

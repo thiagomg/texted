@@ -1,3 +1,9 @@
+Version 0.3.3
+- Metric implementation properly done
+
+Version 0.3.2
+- Preliminary metrics implemented
+
 Version 0.3.1
 - texted-tool now removes especial chars from the file name
 - texted-tool added tags to the post template

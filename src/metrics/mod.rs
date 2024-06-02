@@ -1,6 +1,11 @@
 use std::io;
 use std::path::PathBuf;
 
+use spdlog::{debug, error};
+use tokio::sync::mpsc;
+use tokio::sync::mpsc::Sender;
+use tokio::task::JoinHandle;
+
 use crate::metrics::access_metrics::AccessMetrics;
 use crate::metrics::metric_publisher::MetricPublisher;
 
@@ -30,12 +35,12 @@ mod naive_date_format {
     }
 }
 
-pub struct Metrics {
+pub struct MetricWriter {
     access_metrics: AccessMetrics,
     metric_publisher: MetricPublisher,
 }
 
-impl Metrics {
+impl MetricWriter {
     pub fn new(base_path: &PathBuf) -> spdlog::Result<Self> {
         let access_metrics = AccessMetrics::new();
         let metric_publisher = MetricPublisher::new(base_path)?;
@@ -43,6 +48,7 @@ impl Metrics {
         Ok(Self {
             access_metrics,
             metric_publisher,
+
         })
     }
 
@@ -52,5 +58,43 @@ impl Metrics {
             self.metric_publisher.store_history(&history)?;
         }
         Ok(())
+    }
+}
+
+// -----------
+
+pub struct MetricEvent {
+    pub post_name: String,
+    pub origin: String,
+}
+
+pub struct MetricHandler {
+    _receiver_task: JoinHandle<()>,
+    sender: Sender<MetricEvent>,
+}
+
+impl MetricHandler {
+    pub fn new(mut metrics: MetricWriter) -> Self {
+        let (tx, mut rx) = mpsc::channel::<MetricEvent>(64);
+
+        let receiver_task = tokio::spawn(async move {
+            println!("Starting metrics receiver");
+            while let Some(event) = rx.recv().await {
+                if let Err(e) = metrics.add(&event.post_name, &event.origin) {
+                    error!("Error writing access metric for {}: {}", &event.post_name, e);
+                } else {
+                    debug!("Metric event written for {}", &event.post_name);
+                }
+            }
+        });
+
+        Self {
+            _receiver_task: receiver_task,
+            sender: tx,
+        }
+    }
+
+    pub fn new_sender(&self) -> Sender<MetricEvent> {
+        self.sender.clone()
     }
 }
