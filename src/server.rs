@@ -19,11 +19,17 @@ use crate::post_processor::*;
 use crate::util::toml_date::TomlDate;
 
 struct AppState {
+    /// Links of posts. E.g. my-blog.ca/view/my_post_url
     post_links: Arc<HashMap<String, PathBuf>>,
+    /// Links of posts. E.g. my-blog.ca/page/my_bio
     page_links: Arc<HashMap<String, PathBuf>>,
+    /// Texted configuration
     config: Arc<Config>,
+    /// Cache for post and page contents
     post_cache: Arc<Mutex<ContentCache<String>>>,
-    content_cache: Arc<Mutex<ContentCache<Content>>>,
+    /// Cache for post and page summary, used in listing
+    summary_cache: Arc<Mutex<ContentCache<Content>>>,
+    /// Sender to generate access metrics
     metric_sender: Option<Sender<MetricEvent>>,
 }
 
@@ -118,7 +124,7 @@ async fn view(
 #[web::get("/list")]
 async fn list(req: HttpRequest, state: web::types::State<Arc<Mutex<AppState>>>) -> web::HttpResponse {
     let state = state.lock().unwrap();
-    let mut cache = state.content_cache.lock().unwrap();
+    let mut cache = state.summary_cache.lock().unwrap();
     let config = state.config.clone();
     let post_links = state.post_links.clone();
 
@@ -146,7 +152,7 @@ async fn list_with_tags(req: HttpRequest, path: web::types::Path<String>, state:
     let tag = path.into_inner();
 
     let state = state.lock().unwrap();
-    let mut cache = state.content_cache.lock().unwrap();
+    let mut cache = state.summary_cache.lock().unwrap();
     let config = state.config.clone();
     let post_links = state.post_links.clone();
 
@@ -281,7 +287,7 @@ pub async fn server_run(config: Config) -> Result<()> {
         page_links,
         config,
         post_cache,
-        content_cache,
+        summary_cache: content_cache,
         metric_sender,
     }));
 

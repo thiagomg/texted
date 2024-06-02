@@ -11,13 +11,13 @@ description = "A markdown blog platform that lets you in control of your data"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [build-dependencies]
-flate2 = "1.0.29"
+flate2 = "1.0.30"
 tar = "0.4.40"
 
 
 [dependencies]
-ntex = { version = "1.2.1", features = ["tokio"] }
-ntex-files = "1.0.0"
+ntex = { version = "2.0.1", features = ["tokio"] }
+ntex-files = "2.0.0"
 serde = { version = "1.0.198", features = ["derive"] }
 ramhorns = "1.0.0"
 lazy_static = { version = "1.4.0", features = [] }
