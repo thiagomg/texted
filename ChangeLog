@@ -1,3 +1,6 @@
+Version 0.3.4
+- Added support for X-Forwarded-For for users using apache as a proxy
+
 Version 0.3.3
 - Metric implementation properly done
 

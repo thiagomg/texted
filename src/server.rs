@@ -87,7 +87,8 @@ async fn view(
 ) -> web::HttpResponse {
     let post_name = post_name.into_inner();
     let state = state.lock().unwrap();
-    let origin: String = req.peer_addr().map_or("".to_string(), |x| format!("{}", x));
+
+    let origin: String = get_origin(&req);
     if let Some(ref metric) = state.metric_sender {
         match metric.send(MetricEvent {
             post_name: post_name.clone(),
@@ -227,6 +228,17 @@ async fn index(req: web::HttpRequest, state: web::types::State<Arc<Mutex<AppStat
     web::HttpResponse::Ok()
         .content_type("text/html; charset=utf-8")
         .body(rendered_page)
+}
+
+
+fn get_origin(req: &web::HttpRequest) -> String {
+    if let Some(header) = req.headers().get("X-Forwarded-For") {
+        if let Ok(addr) = header.to_str() {
+            return addr.to_string();
+        }
+    }
+
+    req.peer_addr().map_or("".to_string(), |x| format!("{}", x))
 }
 
 pub async fn server_run(config: Config) -> Result<()> {

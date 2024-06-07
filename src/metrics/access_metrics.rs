@@ -23,7 +23,6 @@ pub struct AccessMetrics {
     /// Post name -> Post Counter
     post_counter: HashMap<String, PostCounter>,
     history: Vec<PostCounter>,
-    //date_provider: Box<dyn DateProvider + Send>,
     date_provider: Box<dyn Fn() -> NaiveDate + Send>,
 }
 
@@ -40,7 +39,6 @@ impl AccessMetrics {
         Self {
             post_counter: Default::default(),
             history: vec![],
-            //date_provider: Box::new(TodayProvider {}),
             date_provider: Box::new(|| -> NaiveDate { Utc::now().date_naive() }),
         }
     }
