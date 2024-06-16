@@ -33,46 +33,6 @@ struct IndexPage {
     days_since_started: i64,
 }
 
-#[derive(ramhorns::Content)]
-struct ListPage<'a> {
-    post_list: Vec<PostItem>,
-    tags: Vec<ViewTag<'a>>,
-    page_list: Vec<ViewPagination>,
-    show_pagination: bool,
-}
-
-#[derive(ramhorns::Content)]
-struct PostItem {
-    date: String,
-    time: String,
-    link: String,
-    title: String,
-    summary: String,
-}
-
-#[derive(ramhorns::Content)]
-struct ViewItem<'a> {
-    errors: Vec<String>,
-    id: &'a str,
-    author: &'a str,
-    tags: &'a Vec<ViewTag<'a>>,
-    date: &'a str,
-    time: &'a str,
-    post_title: &'a str,
-    post_content: &'a str,
-}
-
-#[derive(ramhorns::Content)]
-struct ViewTag<'a> {
-    tag: &'a str,
-}
-
-#[derive(ramhorns::Content)]
-struct ViewPagination {
-    current: bool,
-    number: u32,
-}
-
 #[derive(Debug)]
 pub struct PostLink {
     pub post_name: String,

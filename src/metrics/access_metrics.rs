@@ -14,24 +14,12 @@ pub struct PostCounter {
     pub stats_date: NaiveDate,
 }
 
-pub trait DateProvider {
-    fn today(&self) -> NaiveDate;
-}
-
 /// We have unique visits per day and history of past days, all separated per link
 pub struct AccessMetrics {
     /// Post name -> Post Counter
     post_counter: HashMap<String, PostCounter>,
     history: Vec<PostCounter>,
     date_provider: Box<dyn Fn() -> NaiveDate + Send>,
-}
-
-struct TodayProvider {}
-
-impl DateProvider for TodayProvider {
-    fn today(&self) -> NaiveDate {
-        Utc::now().date_naive()
-    }
 }
 
 impl AccessMetrics {
