@@ -77,8 +77,7 @@ async fn page(
             return web::HttpResponse::BadRequest()
                 .body(format!("Error loading page {}: {}", page_name, e));
         }
-    }
-        .to_string();
+    }.to_string();
 
     web::HttpResponse::Ok()
         .content_type("text/html; charset=utf-8")
@@ -98,13 +97,7 @@ async fn view(
 
     let origin: String = get_origin(&req);
     if let Some(ref metric) = state.metric_sender {
-        match metric
-            .send(MetricEvent {
-                post_name: post_name.clone(),
-                origin,
-            })
-            .await
-        {
+        match metric.send(MetricEvent { post_name: post_name.clone(), origin }).await {
             Ok(_) => {}
             Err(e) => error!("Error writing metrics: {}", e),
         };
@@ -126,8 +119,7 @@ async fn view(
             return web::HttpResponse::BadRequest()
                 .body(format!("Error loading post {}: {}", post_name, e));
         }
-    }
-        .to_string();
+    }.to_string();
 
     web::HttpResponse::Ok()
         .content_type("text/html; charset=utf-8")
@@ -318,7 +310,7 @@ pub async fn server_run(config: Config) -> Result<()> {
         .into_iter()
         .map(|link| (link.post_name, link.post_path))
         .collect();
-    
+
     let (post_cache, content_cache) = match config.defaults.rendering_cache_enabled {
         true => (
             ContentCache::new(),
