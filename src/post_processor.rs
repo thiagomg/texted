@@ -12,7 +12,7 @@ use ntex_files::NamedFile;
 use ramhorns::Template;
 use spdlog::info;
 
-use crate::config::Config;
+use crate::config::{Config, RssFeed};
 use crate::content::Content;
 use crate::content::content_file::ContentFile;
 use crate::content::content_format::ContentFormat;
@@ -25,6 +25,7 @@ use crate::post_list::{PostList, PostListType};
 use crate::query_string::QueryString;
 use crate::view::list_renderer::ListRenderer;
 use crate::view::post_renderer::PostRenderer;
+use crate::view::rss_renderer::RssChannel;
 
 #[derive(ramhorns::Content)]
 struct IndexPage {
@@ -231,6 +232,38 @@ pub fn render_list(config: &Config, posts: PostListWithTags, cur_page: u32) -> i
 
     let res = list_posts.render(content_page, cur_page, tags);
     Ok(res)
+}
+
+pub fn render_rss(rss_feed: &RssFeed, posts: PostListWithTags) -> io::Result<Vec<u8>> {
+    let mut contents = posts.contents;
+
+    // sort contents by date reversed
+    contents.sort_by(|a, b| {
+        b.header.date.cmp(&a.header.date)
+    });
+
+    let page_size = rss_feed.page_size;
+    let paginator = Paginator::from(&contents, page_size);
+
+    let ch_title = rss_feed.title.as_str();
+    let ch_link = rss_feed.site_url.as_str();
+    let ch_desc = rss_feed.description.as_str();
+    let contents = match paginator.get_page(1) {
+        Ok(c) => c,
+        Err(e) => return Err(io::Error::new(ErrorKind::InvalidData, format!("Error paginating rss feed: {}", e))),
+    };
+
+    let rss = RssChannel {
+        ch_title,
+        ch_link,
+        ch_desc,
+    };
+    let xml = match rss.render(contents) {
+        Ok(xml) => xml,
+        Err(e) => return Err(io::Error::new(ErrorKind::InvalidData, format!("Error paginating rss feed: {}", e))),
+    };
+
+    Ok(xml)
 }
 
 pub fn get_preview_option(config: &Config) -> PreviewOptions {

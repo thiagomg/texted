@@ -37,3 +37,10 @@ level = "Info"
 [metrics]
 # Default value is the default cache location for the current OS
 # location = "/var/log/myblog/access-metrics.log"
+
+# The location of the rss feed is http://127.0.0.1:8001/rss in this example
+[rss_feed]
+title = "Texted example blog posts"
+site_url = "http://127.0.0.1:8001"
+description = "This is the description of this example blog"
+page_size = 10

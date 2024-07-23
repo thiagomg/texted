@@ -133,7 +133,7 @@ async fn list(
 ) -> web::HttpResponse {
     let mut state_g = state.lock().unwrap();
     let state = state_g.deref_mut();
-    let mut cache = &mut state.summary_cache; //.lock().unwrap();
+    let mut cache = &mut state.summary_cache;
     let config = &state.config;
     let post_links = state.post_links.clone();
 
@@ -170,7 +170,7 @@ async fn list_with_tags(
 
     let mut state_g = state.lock().unwrap();
     let state = state_g.deref_mut();
-    let mut cache = &mut state.summary_cache; //.lock().unwrap();
+    let mut cache = &mut state.summary_cache;
     let config = &state.config;
     let post_links = state.post_links.clone();
 
@@ -196,6 +196,43 @@ async fn list_with_tags(
     web::HttpResponse::Ok()
         .content_type("text/html; charset=utf-8")
         .body(post_list)
+}
+
+#[web::get("/rss")]
+async fn rss(
+    _req: HttpRequest,
+    state: web::types::State<Arc<Mutex<AppState>>>,
+) -> web::HttpResponse {
+    let mut state_g = state.lock().unwrap();
+    let state = state_g.deref_mut();
+    let mut cache = &mut state.summary_cache;
+    let config = &state.config;
+    let post_links = state.post_links.clone();
+
+    if let Some(ref rss_feed) = config.rss_feed {
+        let preview_opt = get_preview_option(&config);
+        let rendered_posts = match retrieve_post_list(&mut cache, &post_links, None, &preview_opt) {
+            Ok(posts) => posts,
+            Err(e) => {
+                return web::HttpResponse::InternalServerError()
+                    .body(format!("Error listing posts: {}", e))
+            }
+        };
+
+        let post_list = match render_rss(rss_feed, rendered_posts) {
+            Ok(posts) => posts,
+            Err(e) => {
+                return web::HttpResponse::InternalServerError()
+                    .body(format!("Error rendering post list: {}", e))
+            }
+        };
+
+        web::HttpResponse::Ok()
+            .content_type("application/rss+xml; charset=UTF-8")
+            .body(post_list)
+    } else {
+        web::HttpResponse::BadRequest().body("RSS feed is not available.")
+    }
 }
 
 #[web::get("/view/{post}/{file}")]
@@ -351,6 +388,7 @@ pub async fn server_run(config: Config) -> Result<()> {
             .service(public_files)
             .service(list)
             .service(list_with_tags)
+            .service(rss)
             .service(view)
             .service(view_wo_slash)
             .service(post_files)

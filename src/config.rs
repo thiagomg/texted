@@ -59,6 +59,14 @@ pub struct Metrics {
 }
 
 #[derive(Deserialize)]
+pub struct RssFeed {
+    pub title: String,
+    pub site_url: String,
+    pub description: String,
+    pub page_size: u32,
+}
+
+#[derive(Deserialize)]
 pub struct Config {
     pub personal: Personal,
     pub paths: Paths,
@@ -66,6 +74,7 @@ pub struct Config {
     pub server: Server,
     pub log: Option<Log>,
     pub metrics: Option<Metrics>,
+    pub rss_feed: Option<RssFeed>,
 }
 
 fn parse_path(path: PathBuf) -> PathBuf {

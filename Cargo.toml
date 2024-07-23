@@ -1,6 +1,6 @@
 [package]
 name = "texted"
-version = "0.3.5"
+version = "0.3.6"
 edition = "2021"
 authors = ["Thiago Massari Guedes"]
 license = "Apache-2.0"
@@ -37,3 +37,4 @@ tar = "0.4.40"
 unidecode = "0.3.0"
 serde_json = "1.0.117"
 tokio = "1.37.0"
+quick-xml = "0.36.0"
