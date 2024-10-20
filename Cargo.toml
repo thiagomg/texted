@@ -38,3 +38,5 @@ unidecode = "0.3.0"
 serde_json = "1.0.132"
 tokio = "1.40.0"
 quick-xml = "0.36.2"
+bytes = "1.7.2" # Transitive, to prevent using an yanked one
+futures-util = "0.3.31" # Transitive, to prevent using an yanked one
