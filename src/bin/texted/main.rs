@@ -24,7 +24,7 @@ struct Args {
 #[ntex::main]
 async fn main() -> Result<()> {
     let args = Args::parse();
-    let config_path = args.config_path.and_then(|x| Some(PathBuf::from(x)));
+    let config_path = args.config_path.map(PathBuf::from);
 
     let config = match open_config(config_path) {
         Ok(config) => config,

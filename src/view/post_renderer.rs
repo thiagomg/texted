@@ -42,7 +42,7 @@ impl PostRenderer<'_> {
     }
 
     pub fn render(&self, content: &Content) -> String {
-        let ref tags: Vec<ViewTag> = content.header.tags.iter().map(|t| ViewTag { tag: t.as_str() }).collect();
+        let tags: &Vec<ViewTag> = &content.header.tags.iter().map(|t| ViewTag { tag: t.as_str() }).collect();
         let (date, time) = format_date_time(&content.header.date);
         let rendered_page = self.template.render(&ViewItem {
             errors: vec![],

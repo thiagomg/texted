@@ -1,5 +1,5 @@
-use std::{fs, io};
 use std::path::{Path, PathBuf};
+use std::{fs, io};
 
 use anyhow::Context;
 use anyhow::Result;
@@ -20,18 +20,16 @@ impl PostList {
     pub fn retrieve_files(&self) -> io::Result<Vec<PathBuf>> {
         let mut posts = vec![];
         let entries = fs::read_dir(self.root_dir.as_path())?;
-        for entry in entries {
-            if let Ok(entry) = entry {
-                if let Ok(file_type) = entry.file_type() {
-                    if !file_type.is_file() {
-                        continue;
-                    }
-                    let file_name = entry.file_name();
-                    if let Some(file_name) = file_name.to_str() {
-                        // Check if the file has a .md extension
-                        if file_name.ends_with(".md") || file_name.ends_with(".html") || file_name.ends_with(".htm") {
-                            posts.push(entry.path());
-                        }
+        for entry in entries.flatten() {
+            if let Ok(file_type) = entry.file_type() {
+                if !file_type.is_file() {
+                    continue;
+                }
+                let file_name = entry.file_name();
+                if let Some(file_name) = file_name.to_str() {
+                    // Check if the file has a .md extension
+                    if file_name.ends_with(".md") || file_name.ends_with(".html") || file_name.ends_with(".htm") {
+                        posts.push(entry.path());
                     }
                 }
             }
@@ -52,12 +50,10 @@ impl PostList {
         let entries = fs::read_dir(posts_dir)
             .context(format!("Could not list dirs from [{}]", posts_dir.to_str().unwrap()))?;
 
-        for entry in entries {
-            if let Ok(path) = entry {
-                if let Ok(file_type) = path.file_type() {
-                    if file_type.is_dir() {
-                        dirs.push(path.path());
-                    }
+        for path in entries.flatten() {
+            if let Ok(file_type) = path.file_type() {
+                if file_type.is_dir() {
+                    dirs.push(path.path());
                 }
             }
         }

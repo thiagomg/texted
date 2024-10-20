@@ -71,7 +71,7 @@ impl ListRenderer<'_> {
 
         let mut page_list: Vec<ViewPagination> = Vec::with_capacity(self.page_size as usize);
         for i in 1..=self.page_size {
-            let current = if i == cur_page { true } else { false };
+            let current = i == cur_page;
             page_list.push(ViewPagination {
                 current,
                 number: i,
@@ -79,13 +79,11 @@ impl ListRenderer<'_> {
         }
 
         let tags: Vec<_> = tags.iter().map(|t| ViewTag { tag: t.as_str() }).collect();
-        let rendered = self.template.render(&ListPage {
+        self.template.render(&ListPage {
             post_list,
             tags,
             page_list,
             show_pagination: true,
-        });
-
-        rendered
+        })
     }
 }

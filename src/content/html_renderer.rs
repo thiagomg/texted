@@ -3,11 +3,11 @@ use std::io::ErrorKind;
 
 use regex::Regex;
 
-use crate::content::Content;
 use crate::content::content_file::ContentFile;
 use crate::content::content_format::ContentFormat;
 use crate::content::content_renderer::{ContentRenderer, ImagePrefix, RenderOptions};
 use crate::content::parsing_utils::{extract_content, parse_texted_header, parse_title_html};
+use crate::content::Content;
 
 pub struct HtmlRenderer {}
 
@@ -52,7 +52,7 @@ impl HtmlRenderer {
         let result = img_regex.replace_all(html, |captures: &regex::Captures| {
             let src = captures.get(1).unwrap().as_str();
             let prefixed_src = if src.contains("://") {
-                format!(r#"{}"#, src)
+                src.to_string()
             } else {
                 format!(r#"{}{}"#, prefix, src)
             };

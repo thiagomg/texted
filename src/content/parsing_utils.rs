@@ -1,19 +1,19 @@
-use std::{fs, io};
 use std::io::ErrorKind;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::str::Lines;
+use std::{fs, io};
 
 use chrono::{DateTime, Utc};
 use lazy_static::lazy_static;
 use regex::Regex;
 use uuid::Uuid;
 
-use crate::content::{ContentHeader, PostId};
 use crate::content::content_renderer::RenderOptions;
+use crate::content::{ContentHeader, PostId};
 use crate::text_utils::parse_date_time;
 use crate::util::os_helper::get_name;
 
-pub fn parse_texted_header<'a>(file_name: &PathBuf, lines: Lines<'a>) -> io::Result<(ContentHeader, Lines<'a>, Option<&'a str>)> {
+pub fn parse_texted_header<'a>(file_name: &Path, lines: Lines<'a>) -> io::Result<(ContentHeader, Lines<'a>, Option<&'a str>)> {
     let mut id: String = "".to_string();
     let mut date: String = "".to_string();
     let mut author: String = "".to_string();
@@ -25,47 +25,39 @@ pub fn parse_texted_header<'a>(file_name: &PathBuf, lines: Lines<'a>) -> io::Res
     // Skip optional HTML comment in the beginning
     let mut start_with_comment = false;
 
-    loop {
-        if let Some(line) = maybe_line {
-            let line = line.trim();
+    while let Some(line) = maybe_line {
+        let line = line.trim();
 
-            // Empty lines are ok
-            if line.is_empty() {
-                maybe_line = lines.next();
-                continue;
-            }
-
-            if line == "<!--" {
-                maybe_line = lines.next();
-                start_with_comment = true;
-            }
-            break;
-        } else {
-            break;
+        // Empty lines are ok
+        if line.is_empty() {
+            maybe_line = lines.next();
+            continue;
         }
+
+        if line == "<!--" {
+            maybe_line = lines.next();
+            start_with_comment = true;
+        }
+        break;
     }
 
-    loop {
-        if let Some(line) = maybe_line {
-            if line.is_empty() {
-                maybe_line = lines.next();
-                continue;
-            }
+    while let Some(line) = maybe_line {
+        if line.is_empty() {
+            maybe_line = lines.next();
+            continue;
+        }
 
-            let (key, val) = match extract_texted_header(line) {
-                None => break,
-                Some((k, v)) => (k, v),
-            };
+        let (key, val) = match extract_texted_header(line) {
+            None => break,
+            Some((k, v)) => (k, v),
+        };
 
-            match key {
-                "ID" => id = val.to_string(),
-                "DATE" => date = val.to_string(),
-                "AUTHOR" => author = val.to_string(),
-                "TAGS" => tags = val.to_string(),
-                _ => {}
-            }
-        } else {
-            break;
+        match key {
+            "ID" => id = val.to_string(),
+            "DATE" => date = val.to_string(),
+            "AUTHOR" => author = val.to_string(),
+            "TAGS" => tags = val.to_string(),
+            _ => {}
         }
         maybe_line = lines.next();
     }
@@ -109,7 +101,7 @@ pub fn parse_texted_header<'a>(file_name: &PathBuf, lines: Lines<'a>) -> io::Res
     }?;
 
     let header = ContentHeader {
-        file_name: file_name.clone(),
+        file_name: file_name.to_path_buf(),
         id: PostId(id),
         date,
         author,
@@ -133,7 +125,7 @@ pub fn parse_title_markdown<'a>(lines: Lines<'a>, mut maybe_line: Option<&'a str
         }
         maybe_line = lines.next();
     };
-    return (title, lines, maybe_line);
+    (title, lines, maybe_line)
 }
 
 pub fn generate_header_from_file(file_name: &PathBuf) -> io::Result<ContentHeader> {
@@ -176,17 +168,17 @@ pub fn parse_title_html<'a>(lines: Lines<'a>, mut maybe_line: Option<&'a str>) -
         }
         maybe_line = lines.next();
     };
-    return (title, lines, maybe_line);
+    (title, lines, maybe_line)
 }
 
-pub fn extract_content(mut lines: Lines, render_options: &RenderOptions) -> String {
+pub fn extract_content(lines: Lines, render_options: &RenderOptions) -> String {
     match render_options {
         RenderOptions::PreviewOnly(preview_opt, _img_prefix) => {
             let mut content = String::new();
-            let mut counter = 0;
-            while let Some(line) = lines.next() {
+            //let mut counter = 0;
+            for (counter, line) in lines.enumerate() {
                 if let Some(ref line_count) = preview_opt.max_line_count {
-                    if counter >= line_count.0 {
+                    if counter as i32 >= line_count.0 {
                         break;
                     }
                 }
@@ -195,13 +187,12 @@ pub fn extract_content(mut lines: Lines, render_options: &RenderOptions) -> Stri
                 }
                 content.push_str(line);
                 content.push('\n');
-                counter += 1;
             }
             content
         }
         RenderOptions::FullContent => {
             let mut content = String::new();
-            while let Some(line) = lines.next() {
+            for line in lines {
                 content.push_str(line);
                 content.push('\n');
             }
@@ -245,37 +236,34 @@ pub fn remove_comments(md_post: &str) -> io::Result<String> {
     let start_comment = "<!--";
     let end_comment = "-->";
 
-    loop {
-        if let Some(block) = slice {
-            let maybe_start = block.find(start_comment);
-            let md_buf: &str = match maybe_start {
-                Some(start) => {
-                    let to_render: &str = &block[0..start];
 
-                    let next: &str = &block[(start + start_comment.len())..];
-                    match next.find(end_comment) {
-                        Some(end) => {
-                            slice = Some(&next[(end + end_comment.len())..]);
-                        }
-                        None => {
-                            return Err(io::Error::new(
-                                io::ErrorKind::InvalidData,
-                                "Error finding end of comment",
-                            ));
-                        }
-                    };
+    while let Some(block) = slice {
+        let maybe_start = block.find(start_comment);
+        let md_buf: &str = match maybe_start {
+            Some(start) => {
+                let to_render: &str = &block[0..start];
 
-                    to_render
-                }
-                None => {
-                    slice = None;
-                    block
-                }
-            };
-            res.push_str(md_buf);
-        } else {
-            break;
-        }
+                let next: &str = &block[(start + start_comment.len())..];
+                match next.find(end_comment) {
+                    Some(end) => {
+                        slice = Some(&next[(end + end_comment.len())..]);
+                    }
+                    None => {
+                        return Err(io::Error::new(
+                            io::ErrorKind::InvalidData,
+                            "Error finding end of comment",
+                        ));
+                    }
+                };
+
+                to_render
+            }
+            None => {
+                slice = None;
+                block
+            }
+        };
+        res.push_str(md_buf);
     }
 
     Ok(res)

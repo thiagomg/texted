@@ -20,7 +20,7 @@ impl QueryString {
         let one = "1".to_string();
         let val = self.items.get("page").unwrap_or(&one);
         let val = val.parse().unwrap_or(1);
-        if val <= 0 { return 1; }
+        if val == 0 { return 1; }
         val
     }
 }

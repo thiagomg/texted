@@ -1,25 +1,25 @@
-use std::{fs, io};
 use std::fs::File;
 use std::io::{BufWriter, Write};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
+use std::{fs, io};
 
 use chrono::{DateTime, Local};
 use regex::Regex;
 
-use crate::BootstrapArgs;
 use crate::decompress::decompress_files;
+use crate::BootstrapArgs;
 
 fn get_sample_cfg() -> &'static str {
     let sample_cfg = include_str!("../../../texted.toml");
     sample_cfg
 }
 
-fn write_texted_cfg(out_dir: &PathBuf) -> io::Result<()> {
+fn write_texted_cfg(out_dir: &Path) -> io::Result<()> {
     let file = File::create(out_dir.join("texted.toml"))?;
     let mut writer = BufWriter::new(file);
 
     let sample_cfg = get_sample_cfg();
-    let sample_cfg = replace_paths(&out_dir, sample_cfg);
+    let sample_cfg = replace_paths(out_dir, sample_cfg);
     let sample_cfg = replace_date(&sample_cfg);
 
     writer.write_all(sample_cfg.as_bytes())?;
@@ -27,7 +27,7 @@ fn write_texted_cfg(out_dir: &PathBuf) -> io::Result<()> {
     writer.flush()
 }
 
-fn replace_paths(prefix: &PathBuf, config_data: &str) -> String {
+fn replace_paths(prefix: &Path, config_data: &str) -> String {
     let prefix = prefix.to_str().unwrap();
     let prefix = if prefix.ends_with("/") {
         prefix[0..prefix.len() - 1].to_string()
@@ -81,7 +81,6 @@ pub fn bootstrap_cmd(args: BootstrapArgs) {
 
     if let Err(e) = write_texted_cfg(&out_path) {
         eprintln!("Error writing Texted configuration: {}", e);
-        return;
     }
 }
 

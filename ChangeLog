@@ -1,3 +1,10 @@
+Version 1.0.1
+- rust clippy
+- upgraded to rust 1.82.0
+
+Version 1.0
+- Bumped 0.3.6 to 1.0.0
+
 Version 0.3.6
 - Added rss feed support - yoursite.com/rss
 

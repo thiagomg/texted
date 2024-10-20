@@ -37,7 +37,7 @@ pub fn change_images(post_name: &str, md_post: &str) -> String {
                 parsed_string.push_str(link_text);
                 parsed_string.push_str("](");
                 parsed_string.push_str(&prefixed_url);
-                parsed_string.push_str(")");
+                parsed_string.push(')');
 
                 // Update the remaining input to start after the current URL
                 let remaining = &url_start_slice[url_end + 1..];

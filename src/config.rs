@@ -1,6 +1,6 @@
-use std::{env, fs, io};
 use std::io::ErrorKind;
 use std::path::PathBuf;
+use std::{env, fs, io};
 
 use serde::Deserialize;
 
@@ -91,7 +91,7 @@ fn parse_path(path: PathBuf) -> PathBuf {
 pub fn read_config(cfg_path: &PathBuf) -> io::Result<Config> {
     let cfg_content = match fs::read_to_string(cfg_path) {
         Ok(content) => content,
-        Err(e) => return Err(io::Error::new(e.kind(), format!("Error opening configuration file {}: {}", cfg_path.to_str().unwrap(), e.to_string()))),
+        Err(e) => return Err(io::Error::new(e.kind(), format!("Error opening configuration file {}: {}", cfg_path.to_str().unwrap(), e))),
     };
 
     let mut cfg: Config = match toml::from_str::<Config>(cfg_content.as_str()) {

@@ -5,11 +5,11 @@ use std::str::Lines;
 
 use markdown::Options;
 
-use crate::content::{Content, ContentHeader};
 use crate::content::content_file::ContentFile;
 use crate::content::content_format::ContentFormat;
 use crate::content::content_renderer::RenderOptions;
 use crate::content::parsing_utils::{extract_content, generate_header_from_file, parse_texted_header, parse_title_markdown, remove_comments};
+use crate::content::{Content, ContentHeader};
 
 pub struct TextedRenderer {}
 
@@ -42,12 +42,12 @@ impl TextedRenderer {
         let lines_clone = lines.clone();
         match parse_texted_header(file_name, lines) {
             Ok((header, lines, maybe_line)) => {
-                return Ok((header, lines, maybe_line));
+                Ok((header, lines, maybe_line))
             }
             Err(_) => {
                 // Let's try generating from the file, if no header is available
                 let header = generate_header_from_file(file_name)?;
-                return Ok((header, lines_clone, Some("")));
+                Ok((header, lines_clone, Some("")))
             }
         }
     }
@@ -98,7 +98,7 @@ impl TextedRenderer {
                     parsed_string.push_str(link_text);
                     parsed_string.push_str("](");
                     parsed_string.push_str(&prefixed_url);
-                    parsed_string.push_str(")");
+                    parsed_string.push(')');
 
                     // Update the remaining input to start after the current URL
                     let remaining = &url_start_slice[url_end + 1..];

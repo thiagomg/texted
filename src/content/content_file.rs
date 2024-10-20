@@ -1,6 +1,6 @@
-use std::{fs, io};
 use std::io::ErrorKind;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
+use std::{fs, io};
 
 use crate::content::content_format::ContentFormat;
 
@@ -28,11 +28,11 @@ impl ContentFile {
         })
     }
 
-    fn guess_type(file_name: &PathBuf) -> Option<ContentFormat> {
+    fn guess_type(file_name: &Path) -> Option<ContentFormat> {
         match file_name.to_str().unwrap() {
             x if x.ends_with(".md") => Some(ContentFormat::Texted),
             x if x.ends_with(".html") || x.ends_with(".htm") => Some(ContentFormat::Html),
-            _ => return None,
+            _ => None,
         }
     }
 }

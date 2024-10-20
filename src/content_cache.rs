@@ -60,29 +60,29 @@ impl<T> ContentCache<T> {
     }
 
     pub fn get_post_or<F>(&mut self, link: &str, expire_after: Expire, generator_fn: F) -> io::Result<Arc<T>>
-        where
-            F: FnOnce() -> io::Result<T>,
+    where
+        F: FnOnce() -> io::Result<T>,
     {
         self.get_or(format!("post-{}", link), expire_after, generator_fn)
     }
 
     pub fn get_page_or<F>(&mut self, link: &str, expire_after: Expire, generator_fn: F) -> io::Result<Arc<T>>
-        where
-            F: FnOnce() -> io::Result<T>,
+    where
+        F: FnOnce() -> io::Result<T>,
     {
         self.get_or(format!("page-{}", link), expire_after, generator_fn)
     }
 
     fn get_or<F>(&mut self, key: String, expire_after: Expire, generator_fn: F) -> io::Result<Arc<T>>
-        where
-            F: FnOnce() -> io::Result<T>,
+    where
+        F: FnOnce() -> io::Result<T>,
     {
         let res = self.get(&key);
-        if res.is_none() {
+        if let Some(res) = res {
+            Ok(res.clone())
+        } else {
             let content = generator_fn()?;
             Ok(self.add(key.clone(), content, expire_after))
-        } else {
-            Ok(res.unwrap().clone())
         }
     }
 

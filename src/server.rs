@@ -1,15 +1,8 @@
 use std::collections::HashMap;
 use std::ops::DerefMut;
 use std::path::PathBuf;
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 
-use anyhow::Result;
-use chrono::Duration;
-use ntex::web;
-use ntex::web::HttpRequest;
-use ntex_files::NamedFile;
-use spdlog::{debug, error, info};
-use tokio::sync::mpsc::Sender;
 
 use crate::config::Config;
 use crate::content::Content;
@@ -18,6 +11,14 @@ use crate::metrics::{MetricEvent, MetricHandler, MetricWriter};
 use crate::post_list::PostListType;
 use crate::post_processor::*;
 use crate::util::toml_date::TomlDate;
+use anyhow::Result;
+use chrono::Duration;
+use ntex::web;
+use ntex::web::HttpRequest;
+use ntex_files::NamedFile;
+use spdlog::{debug, error, info};
+use tokio::sync::mpsc::Sender;
+use tokio::sync::Mutex;
 
 struct AppState {
     /// Links of posts. E.g. my-blog.ca/view/my_post_url
@@ -59,15 +60,15 @@ async fn page(
 ) -> web::HttpResponse {
     let page_name = page_name.into_inner();
 
-    let mut state_g = state.lock().unwrap();
+    let mut state_g = state.lock().await;
     let state = state_g.deref_mut();
-    let cache = &mut state.post_cache; //.lock().unwrap();
+    let cache = &mut state.post_cache;
     let config = &state.config;
     let page_links = state.page_links.clone();
 
     let rendered_page = match cache.get_page_or(&page_name, Expire::Never, || {
         info!("Rendering page {} from file", page_name);
-        open_content(&config, &page_links, "page.tpl", &page_name)
+        open_content(config, &page_links, "page.tpl", &page_name)
     }) {
         Ok(rendered_post) => {
             debug!("Retrieving page {} from cache", page_name);
@@ -92,8 +93,8 @@ async fn view(
 ) -> web::HttpResponse {
     let post_name = post_name.into_inner();
 
-    let mut state_g = state.lock().unwrap();
-    let state = state_g.deref_mut();
+    let mut state_g = state.lock().await;
+    let state: &mut AppState = state_g.deref_mut();
 
     let origin: String = get_origin(&req);
     if let Some(ref metric) = state.metric_sender {
@@ -103,13 +104,13 @@ async fn view(
         };
     }
 
-    let cache = &mut state.post_cache; //.lock().unwrap();
+    let cache = &mut state.post_cache;
     let config = &state.config;
     let post_links = state.post_links.clone();
 
     let rendered_post = match cache.get_post_or(&post_name, Expire::Never, || {
         info!("Rendering post {} from file", post_name);
-        open_content(&config, &post_links, "view.tpl", &post_name)
+        open_content(config, &post_links, "view.tpl", &post_name)
     }) {
         Ok(rendered_post) => {
             debug!("Retrieving post {} from cache", post_name);
@@ -131,14 +132,14 @@ async fn list(
     req: HttpRequest,
     state: web::types::State<Arc<Mutex<AppState>>>,
 ) -> web::HttpResponse {
-    let mut state_g = state.lock().unwrap();
+    let mut state_g = state.lock().await;
     let state = state_g.deref_mut();
-    let mut cache = &mut state.summary_cache;
+    let cache = &mut state.summary_cache;
     let config = &state.config;
     let post_links = state.post_links.clone();
 
-    let preview_opt = get_preview_option(&config);
-    let rendered_posts = match retrieve_post_list(&mut cache, &post_links, None, &preview_opt) {
+    let preview_opt = get_preview_option(config);
+    let rendered_posts = match retrieve_post_list(cache, &post_links, None, &preview_opt) {
         Ok(posts) => posts,
         Err(e) => {
             return web::HttpResponse::InternalServerError()
@@ -147,7 +148,7 @@ async fn list(
     };
 
     let cur_page: u32 = get_cur_page(req);
-    let post_list = match render_list(&config, rendered_posts, cur_page) {
+    let post_list = match render_list(config, rendered_posts, cur_page) {
         Ok(posts) => posts,
         Err(e) => {
             return web::HttpResponse::InternalServerError()
@@ -168,14 +169,14 @@ async fn list_with_tags(
 ) -> web::HttpResponse {
     let tag = path.into_inner();
 
-    let mut state_g = state.lock().unwrap();
+    let mut state_g = state.lock().await;
     let state = state_g.deref_mut();
-    let mut cache = &mut state.summary_cache;
+    let cache = &mut state.summary_cache;
     let config = &state.config;
     let post_links = state.post_links.clone();
 
-    let preview_opt = get_preview_option(&config);
-    let rendered_posts = match retrieve_post_list(&mut cache, &post_links, Some(tag), &preview_opt)
+    let preview_opt = get_preview_option(config);
+    let rendered_posts = match retrieve_post_list(cache, &post_links, Some(tag), &preview_opt)
     {
         Ok(posts) => posts,
         Err(e) => {
@@ -185,7 +186,7 @@ async fn list_with_tags(
     };
 
     let cur_page: u32 = get_cur_page(req);
-    let post_list = match render_list(&config, rendered_posts, cur_page) {
+    let post_list = match render_list(config, rendered_posts, cur_page) {
         Ok(posts) => posts,
         Err(e) => {
             return web::HttpResponse::InternalServerError()
@@ -203,15 +204,15 @@ async fn rss(
     _req: HttpRequest,
     state: web::types::State<Arc<Mutex<AppState>>>,
 ) -> web::HttpResponse {
-    let mut state_g = state.lock().unwrap();
+    let mut state_g = state.lock().await;
     let state = state_g.deref_mut();
-    let mut cache = &mut state.summary_cache;
+    let cache = &mut state.summary_cache;
     let config = &state.config;
     let post_links = state.post_links.clone();
 
     if let Some(ref rss_feed) = config.rss_feed {
-        let preview_opt = get_preview_option(&config);
-        let rendered_posts = match retrieve_post_list(&mut cache, &post_links, None, &preview_opt) {
+        let preview_opt = get_preview_option(config);
+        let rendered_posts = match retrieve_post_list(cache, &post_links, None, &preview_opt) {
             Ok(posts) => posts,
             Err(e) => {
                 return web::HttpResponse::InternalServerError()
@@ -241,7 +242,7 @@ async fn post_files(
     state: web::types::State<Arc<Mutex<AppState>>>,
 ) -> Result<NamedFile, web::Error> {
     let (post, file) = path.into_inner();
-    let state = state.lock().unwrap();
+    let state = state.lock().await;
     get_file(&state.config.paths.posts_dir, post, file)
 }
 
@@ -251,7 +252,7 @@ async fn page_files(
     state: web::types::State<Arc<Mutex<AppState>>>,
 ) -> Result<NamedFile, web::Error> {
     let (post, file) = path.into_inner();
-    let state = state.lock().unwrap();
+    let state = state.lock().await;
     get_file(&state.config.paths.pages_dir, post, file)
 }
 
@@ -264,7 +265,7 @@ async fn public_files(
         return Err(web::error::ErrorUnauthorized("Access forbidden").into());
     }
 
-    let state = state.lock().unwrap();
+    let state = state.lock().await;
     let file_path = state.config.paths.public_dir.join(path.into_inner());
 
     Ok(NamedFile::open(file_path)?)
@@ -275,7 +276,7 @@ async fn index(
     req: web::HttpRequest,
     state: web::types::State<Arc<Mutex<AppState>>>,
 ) -> web::HttpResponse {
-    let mut state_g = state.lock().unwrap();
+    let mut state_g = state.lock().await;
     let state = state_g.deref_mut();
 
     let cache = &mut state.post_cache; //.lock().unwrap();
@@ -283,7 +284,7 @@ async fn index(
     let page_name = "-index-page";
 
     let rendered_page =
-        match cache.get_page_or(&page_name, Expire::After(Duration::days(1)), || {
+        match cache.get_page_or(page_name, Expire::After(Duration::days(1)), || {
             info!("Rendering page {} from file", page_name);
             let TomlDate(blog_start_date) = state.config.personal.blog_start_date;
             let activity_start_year = state.config.personal.activity_start_year;
@@ -362,7 +363,7 @@ pub async fn server_run(config: Config) -> Result<()> {
     let (metric_sender, _metrics) = if let Some(ref metrics_cfg) = config.metrics {
         // When configuration is loaded, we already set a location if the metrics section is defined
         let location = metrics_cfg.location.as_ref().unwrap();
-        let metrics = MetricWriter::new(&location)?;
+        let metrics = MetricWriter::new(location)?;
         let metric_handler = MetricHandler::new(metrics);
         let sender = metric_handler.new_sender();
         (Some(sender), Some(metric_handler))

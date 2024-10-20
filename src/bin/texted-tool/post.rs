@@ -26,13 +26,13 @@ fn render_header(id: &str, name: &str, date: &str, title: Option<&str>) -> Strin
     let _ = writeln!(&mut buf, "[AUTHOR]: # ({})", name);
     let _ = writeln!(&mut buf, "[TAGS]: # ()");
     let _ = writeln!(&mut buf, "-->");
-    let _ = writeln!(&mut buf, "");
+    let _ = writeln!(&mut buf);
     if let Some(title) = title {
         let _ = writeln!(&mut buf, "# {}", title);
     } else {
         let _ = writeln!(&mut buf, "# Replace with title");
     }
-    let _ = writeln!(&mut buf, "");
+    let _ = writeln!(&mut buf);
     buf
 }
 
@@ -41,9 +41,9 @@ fn render_body() -> String {
 
     let _ = writeln!(&mut buf, "This is a body example");
     let _ = writeln!(&mut buf, "Please remove it and replace with your content");
-    let _ = writeln!(&mut buf, "");
+    let _ = writeln!(&mut buf);
     let _ = writeln!(&mut buf, "<!-- more -->");
-    let _ = writeln!(&mut buf, "");
+    let _ = writeln!(&mut buf);
     let _ = writeln!(&mut buf, "And this is the rest of your post");
 
     buf
@@ -78,10 +78,7 @@ pub fn post_cmd(args: PostArgs) {
     let date = Utc::now();
     let date_str = date.format("%Y-%m-%d %H:%M:%S.000");
 
-    let req_title = match args.output {
-        PostOutput::Stdout => false,
-        _ => true,
-    };
+    let req_title = !matches!(args.output, PostOutput::Stdout);
 
     if req_title && args.title.is_none() {
         eprintln!("For file and dir outputs, title is required");

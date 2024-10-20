@@ -1,14 +1,14 @@
 use std::sync::Arc;
 use std::time::Duration;
 
-use spdlog::{Level, LevelFilter, Logger, LoggerBuilder};
 use spdlog::sink::{RotatingFileSink, RotationPolicy, StdStream, StdStreamSink};
+use spdlog::{Level, LevelFilter, Logger, LoggerBuilder};
 
 use crate::config::{Config, LogLevel};
 
-impl Into<Level> for LogLevel {
-    fn into(self) -> Level {
-        match self {
+impl From<LogLevel> for Level {
+    fn from(value: LogLevel) -> Self {
+        match value {
             LogLevel::Critical => Level::Critical,
             LogLevel::Error => Level::Error,
             LogLevel::Warn => Level::Warn,
@@ -18,7 +18,6 @@ impl Into<Level> for LogLevel {
         }
     }
 }
-
 
 fn add_console_sinks(builder: &mut LoggerBuilder) -> spdlog::Result<()> {
     let stdout = Arc::new(StdStreamSink::builder()

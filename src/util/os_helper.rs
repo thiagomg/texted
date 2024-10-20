@@ -3,5 +3,5 @@ pub fn get_name() -> String {
     if name.is_empty() {
         return whoami::username();
     }
-    return name;
+    name
 }

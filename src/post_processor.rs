@@ -1,8 +1,8 @@
-use std::{fs, io};
 use std::collections::HashMap;
 use std::io::ErrorKind;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
+use std::{fs, io};
 
 use anyhow::Result;
 use chrono::{Datelike, NaiveDate, Utc};
@@ -13,12 +13,12 @@ use ramhorns::Template;
 use spdlog::info;
 
 use crate::config::{Config, RssFeed};
-use crate::content::Content;
 use crate::content::content_file::ContentFile;
 use crate::content::content_format::ContentFormat;
 use crate::content::content_renderer::{BreakTag, ContentRenderer, ImagePrefix, MaxLineCount, PreviewOptions, RenderOptions};
 use crate::content::html_renderer::HtmlRenderer;
 use crate::content::texted_renderer::TextedRenderer;
+use crate::content::Content;
 use crate::content_cache::{ContentCache, Expire};
 use crate::paginator::Paginator;
 use crate::post_list::{PostList, PostListType};
@@ -40,8 +40,8 @@ pub struct PostLink {
     pub post_path: PathBuf,
 }
 
-pub fn list_post_files(root_dir: &PathBuf, post_file: &PostListType) -> Result<Vec<PostLink>> {
-    let root_dir = root_dir.clone();
+pub fn list_post_files(root_dir: &Path, post_file: &PostListType) -> Result<Vec<PostLink>> {
+    let root_dir = root_dir.to_path_buf();
     let post_list = PostList {
         root_dir,
         post_file: post_file.clone(),
@@ -74,12 +74,12 @@ pub fn list_post_files(root_dir: &PathBuf, post_file: &PostListType) -> Result<V
     Ok(posts)
 }
 
-pub fn read_template(tpl_dir: &PathBuf, file_name: &str) -> io::Result<String> {
+pub fn read_template(tpl_dir: &Path, file_name: &str) -> io::Result<String> {
     let full_path = tpl_dir.join(file_name);
-    std::fs::read_to_string(full_path)
+    fs::read_to_string(full_path)
 }
 
-pub fn get_file(root_dir: &PathBuf, post: String, file: String) -> Result<NamedFile, Error> {
+pub fn get_file(root_dir: &Path, post: String, file: String) -> Result<NamedFile, Error> {
     if post.contains("../") || file.contains("../") {
         return Err(web::error::ErrorUnauthorized("Access forbidden").into());
     }
@@ -88,7 +88,7 @@ pub fn get_file(root_dir: &PathBuf, post: String, file: String) -> Result<NamedF
     Ok(NamedFile::open(file_path)?)
 }
 
-pub fn render_index(req: HttpRequest, num_of_posts: usize, tpl_dir: &PathBuf,
+pub fn render_index(req: HttpRequest, num_of_posts: usize, tpl_dir: &Path,
                     activity_start_year: i32, blog_start_date: NaiveDate) -> io::Result<String> {
     let index_tpl_src: String = match read_template(tpl_dir, "index.tpl") {
         Ok(s) => s,
@@ -198,7 +198,7 @@ pub fn render_list(config: &Config, posts: PostListWithTags, cur_page: u32) -> i
     let mut contents = posts.contents;
 
     // Sort tags by frequency reversed
-    let mut tag_list: Vec<(String, i32)> = tag_map.into_iter().map(|(k, v)| { (k, v) }).collect();
+    let mut tag_list: Vec<(String, i32)> = tag_map.into_iter().collect();
     tag_list.sort_by(|a, b| {
         let (_, va) = a;
         let (_, vb) = b;
@@ -271,7 +271,7 @@ pub fn get_preview_option(config: &Config) -> PreviewOptions {
     let mut tag = "<!-- more -->";
 
     if let Some(ref line_tag) = config.defaults.summary_line_tag {
-        tag = &line_tag;
+        tag = line_tag;
     }
     if let Some(ref line_count) = config.defaults.summary_line_count {
         max_line_count = Some(MaxLineCount(*line_count));
