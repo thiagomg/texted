@@ -1,7 +1,6 @@
 use std::collections::HashMap;
-use std::ops::DerefMut;
 use std::path::PathBuf;
-use std::sync::Arc;
+use std::sync::{Arc, RwLock};
 
 
 use crate::config::Config;
@@ -18,19 +17,18 @@ use ntex::web::HttpRequest;
 use ntex_files::NamedFile;
 use spdlog::{debug, error, info};
 use tokio::sync::mpsc::Sender;
-use tokio::sync::Mutex;
 
 struct AppState {
     /// Links of posts. E.g. my-blog.ca/view/my_post_url
-    post_links: HashMap<String, PathBuf>,
+    post_links: RwLock<HashMap<String, PathBuf>>,
     /// Links of posts. E.g. my-blog.ca/page/my_bio
-    page_links: HashMap<String, PathBuf>,
+    page_links: RwLock<HashMap<String, PathBuf>>,
     /// Texted configuration
-    config: Config,
+    config: RwLock<Config>,
     /// Cache for post and page contents
-    post_cache: ContentCache<String>,
+    post_cache: RwLock<ContentCache<String>>,
     /// Cache for post and page summary, used in listing
-    summary_cache: ContentCache<Content>,
+    summary_cache: RwLock<ContentCache<Content>>,
     /// Sender to generate access metrics
     metric_sender: Option<Sender<MetricEvent>>,
 }
@@ -56,27 +54,31 @@ async fn page_wo_slash(path: web::types::Path<String>) -> web::HttpResponse {
 #[web::get("/page/{page}/")]
 async fn page(
     page_name: web::types::Path<String>,
-    state: web::types::State<Arc<Mutex<AppState>>>,
+    app_state: web::types::State<Arc<AppState>>,
 ) -> web::HttpResponse {
     let page_name = page_name.into_inner();
 
-    let mut state_g = state.lock().await;
-    let state = state_g.deref_mut();
-    let cache = &mut state.post_cache;
-    let config = &state.config;
-    let page_links = state.page_links.clone();
-
-    let rendered_page = match cache.get_page_or(&page_name, Expire::Never, || {
-        info!("Rendering page {} from file", page_name);
-        open_content(config, &page_links, "page.tpl", &page_name)
-    }) {
-        Ok(rendered_post) => {
-            debug!("Retrieving page {} from cache", page_name);
-            rendered_post
+    let read_cache = app_state.post_cache.read().unwrap();
+    let rendered_page = match read_cache.get_page(&page_name) {
+        None => {
+            // Let's load and update the cache
+            drop(read_cache);
+            let mut write_cache = app_state.post_cache.write().unwrap();
+            info!("Rendering page {} from file", page_name);
+            let config = &app_state.config.read().unwrap();
+            let page_links = &app_state.page_links.read().unwrap();
+            let content = match open_content(config, page_links, "page.tpl", &page_name) {
+                Ok(content) => content,
+                Err(e) => {
+                    return web::HttpResponse::BadRequest()
+                        .body(format!("Error loading page {}: {}", &page_name, e));
+                }
+            };
+            write_cache.add_page(&page_name, content, Expire::Never)
         }
-        Err(e) => {
-            return web::HttpResponse::BadRequest()
-                .body(format!("Error loading page {}: {}", page_name, e));
+        Some(content) => {
+            debug!("Returning cached page for {}", &page_name);
+            content
         }
     }.to_string();
 
@@ -89,36 +91,38 @@ async fn page(
 async fn view(
     req: HttpRequest,
     post_name: web::types::Path<String>,
-    state: web::types::State<Arc<Mutex<AppState>>>,
+    app_state: web::types::State<Arc<AppState>>,
 ) -> web::HttpResponse {
     let post_name = post_name.into_inner();
 
-    let mut state_g = state.lock().await;
-    let state: &mut AppState = state_g.deref_mut();
-
     let origin: String = get_origin(&req);
-    if let Some(ref metric) = state.metric_sender {
-        match metric.send(MetricEvent { post_name: post_name.clone(), origin }).await {
-            Ok(_) => {}
-            Err(e) => error!("Error writing metrics: {}", e),
+    if let Some(ref metric) = app_state.metric_sender {
+        if let Err(e) = metric.send(MetricEvent { post_name: post_name.clone(), origin }).await {
+            error!("Error writing metrics: {}", e);
         };
     }
 
-    let cache = &mut state.post_cache;
-    let config = &state.config;
-    let post_links = state.post_links.clone();
-
-    let rendered_post = match cache.get_post_or(&post_name, Expire::Never, || {
-        info!("Rendering post {} from file", post_name);
-        open_content(config, &post_links, "view.tpl", &post_name)
-    }) {
-        Ok(rendered_post) => {
-            debug!("Retrieving post {} from cache", post_name);
-            rendered_post
+    let read_cache = app_state.post_cache.read().unwrap();
+    let rendered_post = match read_cache.get_post(&post_name) {
+        None => {
+            // Let's load and update the cache
+            drop(read_cache);
+            let mut write_cache = app_state.post_cache.write().unwrap();
+            info!("Rendering post {} from file", post_name);
+            let config = &app_state.config.read().unwrap();
+            let post_links = &app_state.post_links.read().unwrap();
+            let content = match open_content(config, post_links, "view.tpl", &post_name) {
+                Ok(content) => content,
+                Err(e) => {
+                    return web::HttpResponse::BadRequest()
+                        .body(format!("Error loading post {}: {}", &post_name, e));
+                }
+            };
+            write_cache.add_post(&post_name, content, Expire::Never)
         }
-        Err(e) => {
-            return web::HttpResponse::BadRequest()
-                .body(format!("Error loading post {}: {}", post_name, e));
+        Some(content) => {
+            debug!("Returning cached post for {}", &post_name);
+            content
         }
     }.to_string();
 
@@ -130,16 +134,13 @@ async fn view(
 #[web::get("/list")]
 async fn list(
     req: HttpRequest,
-    state: web::types::State<Arc<Mutex<AppState>>>,
+    app_state: web::types::State<Arc<AppState>>,
 ) -> web::HttpResponse {
-    let mut state_g = state.lock().await;
-    let state = state_g.deref_mut();
-    let cache = &mut state.summary_cache;
-    let config = &state.config;
-    let post_links = state.post_links.clone();
+    let config = app_state.config.read().unwrap();
+    let preview_opt = get_preview_option(&config);
+    let post_links = app_state.post_links.read().unwrap();
 
-    let preview_opt = get_preview_option(config);
-    let rendered_posts = match retrieve_post_list(cache, &post_links, None, &preview_opt) {
+    let rendered_posts = match retrieve_post_list(&app_state.summary_cache, &post_links, None, &preview_opt) {
         Ok(posts) => posts,
         Err(e) => {
             return web::HttpResponse::InternalServerError()
@@ -148,7 +149,7 @@ async fn list(
     };
 
     let cur_page: u32 = get_cur_page(req);
-    let post_list = match render_list(config, rendered_posts, cur_page) {
+    let post_list = match render_list(&config, rendered_posts, cur_page) {
         Ok(posts) => posts,
         Err(e) => {
             return web::HttpResponse::InternalServerError()
@@ -165,19 +166,14 @@ async fn list(
 async fn list_with_tags(
     req: HttpRequest,
     path: web::types::Path<String>,
-    state: web::types::State<Arc<Mutex<AppState>>>,
+    app_state: web::types::State<Arc<AppState>>,
 ) -> web::HttpResponse {
     let tag = path.into_inner();
+    let config = app_state.config.read().unwrap();
+    let preview_opt = get_preview_option(&config);
+    let post_links = app_state.post_links.read().unwrap();
 
-    let mut state_g = state.lock().await;
-    let state = state_g.deref_mut();
-    let cache = &mut state.summary_cache;
-    let config = &state.config;
-    let post_links = state.post_links.clone();
-
-    let preview_opt = get_preview_option(config);
-    let rendered_posts = match retrieve_post_list(cache, &post_links, Some(tag), &preview_opt)
-    {
+    let rendered_posts = match retrieve_post_list(&app_state.summary_cache, &post_links, Some(tag), &preview_opt) {
         Ok(posts) => posts,
         Err(e) => {
             return web::HttpResponse::InternalServerError()
@@ -186,7 +182,7 @@ async fn list_with_tags(
     };
 
     let cur_page: u32 = get_cur_page(req);
-    let post_list = match render_list(config, rendered_posts, cur_page) {
+    let post_list = match render_list(&config, rendered_posts, cur_page) {
         Ok(posts) => posts,
         Err(e) => {
             return web::HttpResponse::InternalServerError()
@@ -202,17 +198,13 @@ async fn list_with_tags(
 #[web::get("/rss")]
 async fn rss(
     _req: HttpRequest,
-    state: web::types::State<Arc<Mutex<AppState>>>,
+    app_state: web::types::State<Arc<AppState>>,
 ) -> web::HttpResponse {
-    let mut state_g = state.lock().await;
-    let state = state_g.deref_mut();
-    let cache = &mut state.summary_cache;
-    let config = &state.config;
-    let post_links = state.post_links.clone();
-
+    let config = app_state.config.read().unwrap();
+    let post_links = &app_state.post_links.read().unwrap();
     if let Some(ref rss_feed) = config.rss_feed {
-        let preview_opt = get_preview_option(config);
-        let rendered_posts = match retrieve_post_list(cache, &post_links, None, &preview_opt) {
+        let preview_opt = get_preview_option(&config);
+        let rendered_posts = match retrieve_post_list(&app_state.summary_cache, post_links, None, &preview_opt) {
             Ok(posts) => posts,
             Err(e) => {
                 return web::HttpResponse::InternalServerError()
@@ -239,34 +231,34 @@ async fn rss(
 #[web::get("/view/{post}/{file}")]
 async fn post_files(
     path: web::types::Path<(String, String)>,
-    state: web::types::State<Arc<Mutex<AppState>>>,
+    app_state: web::types::State<Arc<AppState>>,
 ) -> Result<NamedFile, web::Error> {
     let (post, file) = path.into_inner();
-    let state = state.lock().await;
-    get_file(&state.config.paths.posts_dir, post, file)
+    let posts_dir = &app_state.config.read().unwrap().paths.posts_dir;
+    get_file(posts_dir, post, file)
 }
 
 #[web::get("/page/{post}/{file}")]
 async fn page_files(
     path: web::types::Path<(String, String)>,
-    state: web::types::State<Arc<Mutex<AppState>>>,
+    app_state: web::types::State<Arc<AppState>>,
 ) -> Result<NamedFile, web::Error> {
     let (post, file) = path.into_inner();
-    let state = state.lock().await;
-    get_file(&state.config.paths.pages_dir, post, file)
+    let pages_dir = &app_state.config.read().unwrap().paths.pages_dir;
+    get_file(pages_dir, post, file)
 }
 
 #[web::get("/public/{file_name}")]
 async fn public_files(
     path: web::types::Path<String>,
-    state: web::types::State<Arc<Mutex<AppState>>>,
+    app_state: web::types::State<Arc<AppState>>,
 ) -> Result<NamedFile, web::Error> {
     if path.contains("../") {
         return Err(web::error::ErrorUnauthorized("Access forbidden").into());
     }
 
-    let state = state.lock().await;
-    let file_path = state.config.paths.public_dir.join(path.into_inner());
+    let config = app_state.config.read().unwrap();
+    let file_path = config.paths.public_dir.join(path.into_inner());
 
     Ok(NamedFile::open(file_path)?)
 }
@@ -274,38 +266,36 @@ async fn public_files(
 #[web::get("/")]
 async fn index(
     req: web::HttpRequest,
-    state: web::types::State<Arc<Mutex<AppState>>>,
+    app_state: web::types::State<Arc<AppState>>,
 ) -> web::HttpResponse {
-    let mut state_g = state.lock().await;
-    let state = state_g.deref_mut();
-
-    let cache = &mut state.post_cache; //.lock().unwrap();
-    let config = &state.config;
+    let read_cache = app_state.post_cache.read().unwrap();
     let page_name = "-index-page";
 
-    let rendered_page =
-        match cache.get_page_or(page_name, Expire::After(Duration::days(1)), || {
+    let rendered_page = match read_cache.get_page(page_name) {
+        None => {
+            // Let's load from the file and update the cache
             info!("Rendering page {} from file", page_name);
-            let TomlDate(blog_start_date) = state.config.personal.blog_start_date;
-            let activity_start_year = state.config.personal.activity_start_year;
-            render_index(
-                req,
-                state.post_links.len(),
-                &config.paths.template_dir,
-                activity_start_year,
-                blog_start_date,
-            )
-        }) {
-            Ok(rendered_post) => {
-                debug!("Retrieving page {} from cache", page_name);
-                rendered_post
-            }
-            Err(e) => {
-                return web::HttpResponse::BadRequest()
-                    .body(format!("Error loading index page {}: {}", page_name, e));
-            }
+            let config = app_state.config.read().unwrap();
+            let num_of_posts = app_state.post_links.read().unwrap().len();
+
+            let TomlDate(blog_start_date) = config.personal.blog_start_date;
+            let activity_start_year = config.personal.activity_start_year;
+
+            let rendered_post = match render_index(req, num_of_posts, &config.paths.template_dir, activity_start_year, blog_start_date) {
+                Ok(rendered_post) => rendered_post,
+                Err(e) => {
+                    return web::HttpResponse::BadRequest()
+                        .body(format!("Error loading index page {}: {}", page_name, e));
+                }
+            };
+
+            drop(read_cache);
+
+            let mut rw_cache = app_state.post_cache.write().unwrap();
+            rw_cache.add_page(page_name, rendered_post, Expire::After(Duration::days(1)))
         }
-            .to_string();
+        Some(rendered) => rendered,
+    }.to_string();
 
     web::HttpResponse::Ok()
         .content_type("text/html; charset=utf-8")
@@ -349,7 +339,7 @@ pub async fn server_run(config: Config) -> Result<()> {
         .map(|link| (link.post_name, link.post_path))
         .collect();
 
-    let (post_cache, content_cache) = match config.defaults.rendering_cache_enabled {
+    let (post_cache, summary_cache) = match config.defaults.rendering_cache_enabled {
         true => (
             ContentCache::new(),
             ContentCache::new(),
@@ -371,16 +361,22 @@ pub async fn server_run(config: Config) -> Result<()> {
         (None, None)
     };
 
+    let post_links = RwLock::new(post_links);
+    let page_links = RwLock::new(page_links);
     let bind_addr = config.server.address.clone();
     let bind_port = config.server.port;
-    let app_state = Arc::new(Mutex::new(AppState {
+    let config = RwLock::new(config);
+    let post_cache = RwLock::new(post_cache);
+    let summary_cache = RwLock::new(summary_cache);
+
+    let app_state = Arc::new(AppState {
         post_links,
         page_links,
         config,
         post_cache,
-        summary_cache: content_cache,
+        summary_cache,
         metric_sender,
-    }));
+    });
 
     web::HttpServer::new(move || {
         web::App::new()

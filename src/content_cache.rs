@@ -1,5 +1,4 @@
 use std::collections::HashMap;
-use std::io;
 use std::sync::{Arc, RwLock};
 
 use chrono::{DateTime, Duration, Utc};
@@ -59,34 +58,31 @@ impl<T> ContentCache<T> {
         }
     }
 
-    pub fn get_post_or<F>(&mut self, link: &str, expire_after: Expire, generator_fn: F) -> io::Result<Arc<T>>
-    where
-        F: FnOnce() -> io::Result<T>,
+    pub fn get_post(&self, link: &str) -> Option<Arc<T>>
     {
-        self.get_or(format!("post-{}", link), expire_after, generator_fn)
+        let key = format!("post-{}", link);
+        self.get(key.as_str())
     }
 
-    pub fn get_page_or<F>(&mut self, link: &str, expire_after: Expire, generator_fn: F) -> io::Result<Arc<T>>
-    where
-        F: FnOnce() -> io::Result<T>,
+    pub fn get_page(&self, link: &str) -> Option<Arc<T>>
     {
-        self.get_or(format!("page-{}", link), expire_after, generator_fn)
+        let key = format!("page-{}", link);
+        self.get(key.as_str())
     }
 
-    fn get_or<F>(&mut self, key: String, expire_after: Expire, generator_fn: F) -> io::Result<Arc<T>>
-    where
-        F: FnOnce() -> io::Result<T>,
+    pub fn add_post(&mut self, link: &str, content: T, expire_after: Expire) -> Arc<T>
     {
-        let res = self.get(&key);
-        if let Some(res) = res {
-            Ok(res.clone())
-        } else {
-            let content = generator_fn()?;
-            Ok(self.add(key.clone(), content, expire_after))
-        }
+        let key = format!("post-{}", link);
+        self.add(key, content, expire_after)
     }
 
-    fn get(&mut self, key: &str) -> Option<Arc<T>> {
+    pub fn add_page(&mut self, link: &str, content: T, expire_after: Expire) -> Arc<T>
+    {
+        let key = format!("page-{}", link);
+        self.add(key, content, expire_after)
+    }
+
+    pub fn get(&self, key: &str) -> Option<Arc<T>> {
         if let Some(ref cache) = self.cache {
             let _reader = self.lock.read().unwrap();
             if let Some(cache_value) = cache.get(key) {
@@ -105,65 +101,83 @@ impl<T> ContentCache<T> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use chrono::Duration;
+    use std::sync::Arc;
 
     #[test]
-    fn test_get_or() {
-        let mut cache = ContentCache::new();
-        let content = cache.get_or("post-1".to_string(), Expire::Never, || {
-            Ok("post-1-content".to_string())
-        });
-        assert_eq!(content.unwrap().as_str(), "post-1-content");
+    fn test_content_cache_new() {
+        let cache: ContentCache<String> = ContentCache::new();
+        assert!(cache.cache.is_some());
+        assert_eq!(*cache.lock.read().unwrap(), 0);
     }
 
     #[test]
-    fn test_get_post_or() {
-        let mut cache = ContentCache::new();
-        let content = cache.get_post_or("some_link", Expire::Never, || {
-            Ok("post-1-content".to_string())
-        });
-        assert_eq!(content.unwrap().as_str(), "post-1-content");
+    fn test_content_cache_non_caching() {
+        let cache: ContentCache<String> = ContentCache::non_caching();
+        assert!(cache.cache.is_none());
+        assert_eq!(*cache.lock.read().unwrap(), 0);
     }
 
     #[test]
-    fn test_get_page_or() {
+    fn test_add_and_get_post_never_expires() {
         let mut cache = ContentCache::new();
-        let content = cache.get_post_or("some_link", Expire::Never, || {
-            Ok("post-1-content".to_string())
-        });
-        assert_eq!(content.unwrap().as_str(), "post-1-content");
+        let content = "Hello, world!".to_string();
+        let link = "test-post";
+
+        let cached_content = cache.add_post(link, content.clone(), Expire::Never);
+        assert_eq!(Arc::strong_count(&cached_content), 2); // Check if Arc count increased
+
+        let retrieved_content = cache.get_post(link).unwrap();
+        assert_eq!(retrieved_content.as_ref(), &content);
     }
 
     #[test]
-    fn test_get_page_or_expire() {
+    fn test_add_and_get_post_expires_after() {
         let mut cache = ContentCache::new();
-        let mut value = 0;
-        let content = cache.get_post_or("some_link", Expire::After(Duration::milliseconds(100)), || {
-            value += 1;
-            Ok("post-1-content".to_string())
-        });
-        assert_eq!(content.unwrap().as_str(), "post-1-content");
-        let content = cache.get_post_or("some_link", Expire::After(Duration::milliseconds(100)), || {
-            value += 10;
-            Ok("post-1-content".to_string())
-        });
-        assert_eq!(content.unwrap().as_str(), "post-1-content");
+        let content = "Hello, world!".to_string();
+        let link = "test-post-expiring";
 
+        let expire_after = Expire::After(Duration::milliseconds(100));
+        let cached_content = cache.add_post(link, content.clone(), expire_after);
+
+        // Retrieve immediately, should not expire yet
+        let retrieved_content = cache.get_post(link).unwrap();
+        assert_eq!(cached_content.as_ref(), &content);
+        assert_eq!(retrieved_content.as_ref(), &content);
+
+        // Simulate passage of time and expire the cache
         std::thread::sleep(std::time::Duration::from_millis(200));
-        let content = cache.get_post_or("some_link", Expire::After(Duration::milliseconds(100)), || {
-            value += 100;
-            Ok("post-1-content".to_string())
-        });
-        assert_eq!(content.unwrap().as_str(), "post-1-content");
-        assert_eq!(value, 101);
+        assert!(cache.get_post(link).is_none());
     }
 
     #[test]
-    fn test_no_cache() {
-        let mut cache = ContentCache::non_caching();
-        let content = cache.get_post_or("some_link", Expire::Never, || {
-            Ok("post-1-content".to_string())
-        });
-        assert_eq!(content.unwrap().as_str(), "post-1-content");
-        assert_eq!(cache.get("some_link"), None);
+    fn test_add_and_get_page() {
+        let mut cache = ContentCache::new();
+        let content = "Page content".to_string();
+        let link = "test-page";
+
+        let cached_content = cache.add_page(link, content.clone(), Expire::Never);
+        assert_eq!(Arc::strong_count(&cached_content), 2);
+
+        let retrieved_content = cache.get_page(link).unwrap();
+        assert_eq!(retrieved_content.as_ref(), &content);
+    }
+
+    #[test]
+    fn test_get_nonexistent_key() {
+        let cache: ContentCache<String> = ContentCache::new();
+        assert!(cache.get("nonexistent-key").is_none());
+    }
+
+    #[test]
+    fn test_non_caching_behavior() {
+        let mut cache: ContentCache<String> = ContentCache::non_caching();
+        let content = "Non-cached content".to_string();
+        let link = "non-cached-post";
+
+        let cached_content = cache.add_post(link, content.clone(), Expire::Never);
+        assert_eq!(Arc::strong_count(&cached_content), 1); // No caching, so only one Arc count
+
+        assert!(cache.get_post(link).is_none());
     }
 }

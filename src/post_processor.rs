@@ -1,16 +1,8 @@
 use std::collections::HashMap;
 use std::io::ErrorKind;
 use std::path::{Path, PathBuf};
-use std::sync::Arc;
+use std::sync::{Arc, RwLock};
 use std::{fs, io};
-
-use anyhow::Result;
-use chrono::{Datelike, NaiveDate, Utc};
-use ntex::web;
-use ntex::web::{Error, HttpRequest};
-use ntex_files::NamedFile;
-use ramhorns::Template;
-use spdlog::info;
 
 use crate::config::{Config, RssFeed};
 use crate::content::content_file::ContentFile;
@@ -26,6 +18,13 @@ use crate::query_string::QueryString;
 use crate::view::list_renderer::ListRenderer;
 use crate::view::post_renderer::PostRenderer;
 use crate::view::rss_renderer::RssChannel;
+use anyhow::Result;
+use chrono::{Datelike, NaiveDate, Utc};
+use ntex::web;
+use ntex::web::{Error, HttpRequest};
+use ntex_files::NamedFile;
+use ramhorns::Template;
+use spdlog::info;
 
 #[derive(ramhorns::Content)]
 struct IndexPage {
@@ -158,20 +157,44 @@ pub struct PostListWithTags {
     tag_map: HashMap<String, i32>,
 }
 
-pub fn retrieve_post_list(cache: &mut ContentCache<Content>, link_to_files: &HashMap<String, PathBuf>, tag_to_filter: Option<String>, preview_opt: &PreviewOptions) -> io::Result<PostListWithTags> {
+pub fn retrieve_post_list(content_cache: &RwLock<ContentCache<Content>>, link_to_files: &HashMap<String, PathBuf>, tag_to_filter: Option<String>, preview_opt: &PreviewOptions) -> io::Result<PostListWithTags> {
     let mut contents = vec![];
     let mut tag_map = HashMap::new();
 
+    let mut cache = content_cache.read().unwrap();
     for (post_link, content_path) in link_to_files.iter() {
-        let content = cache.get_post_or(post_link, Expire::Never, || {
-            info!("Rendering post preview from file for {}", post_link);
-            let content_file = ContentFile::from_file(post_link.clone(), content_path.clone())?;
-            let img_prefix = ImagePrefix(format!("/view/{}", post_link));
-            match content_file.format {
-                ContentFormat::Texted => TextedRenderer::render(&content_file, RenderOptions::PreviewOnly(preview_opt.clone(), img_prefix)),
-                ContentFormat::Html => HtmlRenderer::render(&content_file, RenderOptions::PreviewOnly(preview_opt.clone(), img_prefix)),
+        let content = match cache.get_post(post_link) {
+            None => {
+                // We need to load and update the cache
+                info!("Rendering post preview from file for {}", post_link);
+                let content_file = ContentFile::from_file(post_link.clone(), content_path.clone())?;
+                let img_prefix = ImagePrefix(format!("/view/{}", post_link));
+                let content = match content_file.format {
+                    ContentFormat::Texted => TextedRenderer::render(&content_file, RenderOptions::PreviewOnly(preview_opt.clone(), img_prefix)),
+                    ContentFormat::Html => HtmlRenderer::render(&content_file, RenderOptions::PreviewOnly(preview_opt.clone(), img_prefix)),
+                }?;
+                
+                drop(cache);
+
+                let mut rw_cache = content_cache.write().unwrap();
+                let content = rw_cache.add_post(post_link, content, Expire::Never);
+                drop(rw_cache);
+
+                cache = content_cache.read().unwrap();
+
+                content
             }
-        })?;
+            Some(content) => content,
+        };
+        // let content = cache.get_post_or(post_link, Expire::Never, || {
+        //     info!("Rendering post preview from file for {}", post_link);
+        //     let content_file = ContentFile::from_file(post_link.clone(), content_path.clone())?;
+        //     let img_prefix = ImagePrefix(format!("/view/{}", post_link));
+        //     match content_file.format {
+        //         ContentFormat::Texted => TextedRenderer::render(&content_file, RenderOptions::PreviewOnly(preview_opt.clone(), img_prefix)),
+        //         ContentFormat::Html => HtmlRenderer::render(&content_file, RenderOptions::PreviewOnly(preview_opt.clone(), img_prefix)),
+        //     }
+        // })?;
 
         for post_tag in content.header.tags.iter() {
             *tag_map.entry(post_tag.clone()).or_insert(0) += 1;

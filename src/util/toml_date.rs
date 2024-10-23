@@ -9,8 +9,8 @@ pub struct TomlDate(pub NaiveDate);
 
 impl<'de> Deserialize<'de> for TomlDate {
     fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
-        where
-            D: serde::Deserializer<'de>,
+    where
+        D: serde::Deserializer<'de>,
     {
         use serde::de::Error;
         let value = toml::value::Datetime::deserialize(deserializer)?;
@@ -36,6 +36,7 @@ mod tests {
 
     #[derive(Deserialize)]
     pub struct Personal {
+        #[allow(dead_code)]
         pub activity_start_year: i32,
         pub blog_start_date: TomlDate,
     }
