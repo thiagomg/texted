@@ -1,3 +1,6 @@
+Version 1.0.2
+- Changed unique lock with multiple rwlocks to improve performance
+
 Version 1.0.1
 - rust clippy
 - upgraded to rust 1.82.0
