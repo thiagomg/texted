@@ -1,9 +1,8 @@
 # What next?
 
-- Metric by minute
-- Flush metric when terminating
+- [X] Metric by minute
+- [ ] Adding a better interface to send metrics (other than sender::send)
 - configuration reload
 - post list reload
 - flush cache
-- Generate stats of number of visits
 - Parse tags from the body content

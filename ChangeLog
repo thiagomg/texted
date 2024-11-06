@@ -1,3 +1,6 @@
+Version 1.0.3
+- Refactored metrics to support aggregation per minute (previous implementation was very, very simplistic)
+
 Version 1.0.2
 - Changed unique lock with multiple rwlocks to improve performance
 

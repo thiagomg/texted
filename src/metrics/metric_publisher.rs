@@ -2,10 +2,10 @@ use std::io;
 use std::path::PathBuf;
 use std::sync::Arc;
 
-use spdlog::{info, Logger};
 use spdlog::sink::{RotatingFileSink, RotationPolicy};
+use spdlog::{info, Logger};
 
-use crate::metrics::access_metrics::PostCounter;
+use crate::metrics::event_slot::EventSlot;
 
 pub struct MetricPublisher {
     logger: Arc<Logger>,
@@ -27,55 +27,13 @@ impl MetricPublisher {
         })
     }
 
-    pub fn store_history(&self, history: &Vec<PostCounter>) -> io::Result<()> {
-        for post_counter in history {
-            let json = serde_json::to_string(&post_counter)?;
+    pub fn store_events(&self, history: &Vec<EventSlot>) -> io::Result<()> {
+        for event_slot in history {
+            let json = serde_json::to_string(&event_slot)?;
             info!(logger: self.logger, "{}", &json);
+            self.logger.flush();
         }
 
         Ok(())
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use chrono::NaiveDate;
-
-    use crate::metrics::access_metrics::AccessMetrics;
-
-    use super::*;
-
-    #[test]
-    fn write_to_file() {
-        let d = || -> NaiveDate {
-            static mut COUNTER: u32 = 0;
-            let day = unsafe {
-                COUNTER += 1;
-                match COUNTER {
-                    0 | 1 => 21,
-                    2 | 3 => 22,
-                    _ => 23,
-                }
-            };
-
-            NaiveDate::from_ymd_opt(2024, 05, day).unwrap()
-        };
-
-        let mut metrics = AccessMetrics::new_for_test(Box::new(d));
-
-        let publisher = MetricPublisher {
-            logger: spdlog::default_logger(),
-        };
-
-        metrics.add("post-1", "10.0.0.1");
-        metrics.add("post-1", "10.0.0.2");
-        metrics.add("post-1", "10.0.0.1");
-        metrics.add("post-1", "10.0.0.2");
-        metrics.add("post-1", "10.0.0.1");
-        metrics.add("post-1", "10.0.0.2");
-        metrics.add("post-2", "10.0.0.1");
-        metrics.add("post-2", "10.0.0.2");
-
-        publisher.store_history(&metrics.remove_history().unwrap()).unwrap();
     }
 }
