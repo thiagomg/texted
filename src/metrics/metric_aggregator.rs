@@ -1,5 +1,6 @@
 use crate::metrics::event_slot::EventSlot;
 use chrono::{DateTime, Duration, Utc};
+use spdlog::debug;
 use std::collections::HashMap;
 
 pub struct Event {
@@ -33,6 +34,23 @@ impl MetricAggregator {
         })
     }
 
+    pub fn flush(&mut self) {
+        let date_time = Utc::now();
+        let mut should_drain = false;
+        for (_, slot) in self.slots.iter_mut() {
+            if date_time >= slot.stats_date_end {
+                should_drain = true;
+                break;
+            }
+        }
+
+        debug!("Flush called for {}. Should_drain={}", date_time, should_drain);
+        if should_drain {
+            let values: Vec<EventSlot> = self.slots.drain().map(|(_, v)| v).collect();
+            self.history.extend(values);
+        }
+    }
+
     pub fn add_event(&mut self, event: Event) {
         if let Some(slot) = self.slots.get_mut(&event.post_name) {
             // We need to check if the event is inside the slot duration.
@@ -40,8 +58,9 @@ impl MetricAggregator {
                 // If yes, add origin into the hashset and increase total
                 let inserted = slot.origins.insert(event.origin);
                 if inserted {
-                    slot.total += event.total;
+                    slot.unique_total += event.total;
                 }
+                slot.total += event.total;
                 return;
             } else {
                 // If not, add to history and reset
@@ -91,7 +110,8 @@ mod tests {
         let events = m.take_events();
         let expected = vec![EventSlot {
             post_name: "post-1".to_string(),
-            total: 2,
+            unique_total: 2,
+            total: 3,
             origins: HashSet::from(["10.0.0.1".to_string(), "10.0.0.2".to_string()]),
             stats_date_start: DateTime::parse_from_rfc3339("2024-11-01T01:02:00Z").unwrap().into(),
             stats_date_end: DateTime::parse_from_rfc3339("2024-11-01T01:02:05Z").unwrap().into(),
@@ -102,6 +122,7 @@ mod tests {
         let events = m.take_events();
         let expected = vec![EventSlot {
             post_name: "post-1".to_string(),
+            unique_total: 1,
             total: 1,
             origins: HashSet::from(["10.0.0.1".to_string()]),
             stats_date_start: DateTime::parse_from_rfc3339("2024-11-01T01:02:05Z").unwrap().into(),

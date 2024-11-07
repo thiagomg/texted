@@ -33,7 +33,7 @@ struct IndexPage {
     days_since_started: i64,
 }
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq)]
 pub struct PostLink {
     pub post_name: String,
     pub post_path: PathBuf,
@@ -173,7 +173,7 @@ pub fn retrieve_post_list(content_cache: &RwLock<ContentCache<Content>>, link_to
                     ContentFormat::Texted => TextedRenderer::render(&content_file, RenderOptions::PreviewOnly(preview_opt.clone(), img_prefix)),
                     ContentFormat::Html => HtmlRenderer::render(&content_file, RenderOptions::PreviewOnly(preview_opt.clone(), img_prefix)),
                 }?;
-                
+
                 drop(cache);
 
                 let mut rw_cache = content_cache.write().unwrap();
@@ -314,8 +314,14 @@ mod tests {
     fn test_extract_last() {
         let list_type = PostListType::IndexBaseName("index".to_string());
         let posts = list_post_files(&PathBuf::from("res/posts"), &list_type).unwrap();
-        for post in posts {
-            println!("{:?}", &post);
-        }
+        
+        let expected = vec![
+            PostLink { post_name: "html_post_with_image".to_string(), post_path: PathBuf::from("res/posts/html_post_with_image/index.html") },
+            PostLink { post_name: "post_with_image".to_string(), post_path: PathBuf::from("res/posts/post_with_image/index.md") },
+            PostLink { post_name: "html_post".to_string(), post_path: PathBuf::from("res/posts/html_post.htm") },
+            PostLink { post_name: "post_without_images".to_string(), post_path: PathBuf::from("res/posts/post_without_images.md") },
+            PostLink { post_name: "new_post".to_string(), post_path: PathBuf::from("res/posts/new_post.md") },
+        ];
+        assert_eq!(expected, posts);
     }
 }

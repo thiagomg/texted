@@ -37,6 +37,7 @@ level = "Info"
 [metrics]
 # Default value is the default cache location for the current OS
 # location = "/var/log/myblog/access-metrics.log"
+# time_slot_secs = 60
 
 # The location of the rss feed is http://127.0.0.1:8001/rss in this example
 [rss_feed]

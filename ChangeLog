@@ -1,3 +1,7 @@
+Version 1.1.0
+- Added total visits and unique visits to metrics
+- Metric aggregation time slot is now configurable
+
 Version 1.0.3
 - Refactored metrics to support aggregation per minute (previous implementation was very, very simplistic)
 

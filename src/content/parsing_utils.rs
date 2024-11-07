@@ -343,27 +343,22 @@ mod tests {
     fn test_parse_removes_comment() {
         let content = r#"Some text.<!-- more -->Wo<!-- xyz -->rd"#;
         let res = remove_comments(content).unwrap();
-        println!("[{}]", res);
-        println!("-------------------");
+        assert_eq!(res, "Some text.Word");
 
         let content = r#"Some text.Word"#;
         let res = remove_comments(content).unwrap();
-        println!("[{}]", res);
-        println!("-------------------");
+        assert_eq!(res, "Some text.Word");
 
         let content = r#""#;
         let res = remove_comments(content).unwrap();
-        println!("[{}]", res);
-        println!("-------------------");
+        assert_eq!(res, "");
 
         let content = r#"<!-- more --><!-- xyz -->"#;
         let res = remove_comments(content).unwrap();
-        println!("[{}]", res);
-        println!("-------------------");
+        assert_eq!(res, "");
 
         let content = r#"<!-- more -->"#;
         let res = remove_comments(content).unwrap();
-        println!("[{}]", res);
-        println!("-------------------");
+        assert_eq!(res, "");
     }
 }

@@ -186,9 +186,8 @@ mod tests {
             ch_desc,
         };
         let xml = rss.render(&contents).unwrap();
-        println!("XML: {}", str::from_utf8(&xml).unwrap());
         assert_eq!(str::from_utf8(&xml).unwrap(), EXPECTED);
     }
-    
+
     const EXPECTED: &str = r##"<?xml version="1.0" encoding="UTF-8"?><rss version="2.0"><channel><title>my feed</title><link>https://thiagocafe.com</link><description>My blog feed</description><item><title>title-of-post-1</title><link>https://thiagocafe.com/view/post-1/</link><guid isPermaLink="false">1</guid><description><![CDATA[summary-of-post-1]]></description><pubDate>Tue, 2 Jan 2024 05:06:07 +0000</pubDate></item><item><title>title-of-post-2</title><link>https://thiagocafe.com/view/post-2/</link><guid isPermaLink="false">2</guid><description><![CDATA[summary-of-post-2]]></description><pubDate>Tue, 2 Jan 2024 05:06:07 +0000</pubDate></item></channel></rss>"##;
 }

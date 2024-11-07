@@ -6,6 +6,7 @@ use std::collections::HashSet;
 #[derive(Debug, Default, PartialEq, Serialize)]
 pub struct EventSlot {
     pub post_name: String,
+    pub unique_total: u64,
     pub total: u64,
     pub origins: HashSet<String>,
     pub stats_date_start: DateTime<Utc>,
@@ -20,6 +21,7 @@ impl EventSlot {
 
         EventSlot {
             post_name: event.post_name,
+            unique_total: event.total,
             total: event.total,
             origins,
             stats_date_start,

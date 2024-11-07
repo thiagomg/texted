@@ -56,6 +56,7 @@ pub enum LogLevel {
 #[derive(Deserialize)]
 pub struct Metrics {
     pub location: Option<PathBuf>,
+    pub time_slot_secs: Option<i64>,
 }
 
 #[derive(Deserialize)]

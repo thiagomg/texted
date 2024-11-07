@@ -1,7 +1,7 @@
 use std::env;
 use std::path::PathBuf;
 
-use texted::config::{Config, read_config};
+use texted::config::{read_config, Config};
 
 use crate::CFG_FILE_NAME;
 
@@ -56,6 +56,11 @@ pub(crate) fn open_config(cfg_path: Option<PathBuf>) -> Result<Config, String> {
         });
         metrics.location = Some(location);
         println!("Metrics enabled. Files will be written in {}", metrics.location.as_ref().unwrap().to_str().unwrap());
+
+        let time_slot_secs = metrics.time_slot_secs.unwrap_or(60);
+        metrics.time_slot_secs = Some(time_slot_secs);
+        println!("Metrics time slot is {} seconds.", time_slot_secs);
+
         config.metrics = Some(metrics);
     } else {
         println!("Metrics disabled.");

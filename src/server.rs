@@ -353,7 +353,8 @@ pub async fn server_run(config: Config) -> Result<()> {
     let (metric_sender, _metrics) = if let Some(ref metrics_cfg) = config.metrics {
         // When configuration is loaded, we already set a location if the metrics section is defined
         let location = metrics_cfg.location.as_ref().unwrap();
-        let metrics = MetricWriter::new(location)?;
+        let time_slot = Duration::seconds(metrics_cfg.time_slot_secs.unwrap());
+        let metrics = MetricWriter::new(location, time_slot)?;
         let metric_handler = MetricHandler::new(metrics);
         let sender = metric_handler.new_sender();
         (Some(sender), Some(metric_handler))
