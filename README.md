@@ -14,6 +14,15 @@ Why did I create one blog system instead of using some existing blog platform?
 
 ### Installing
 
+Using brew:
+
+```bash
+brew tap thiagomg/texted
+brew install texted
+```
+
+Or using cargo
+
 ```bash
 cargo install texted
 ```
