@@ -6,7 +6,8 @@ use std::sync::{Arc, RwLock};
 use crate::config::Config;
 use crate::content::Content;
 use crate::content_cache::{ContentCache, Expire};
-use crate::metrics::{MetricEvent, MetricHandler, MetricWriter};
+use crate::metrics::metric_sender::MetricSender;
+use crate::metrics::{MetricHandler, MetricWriter};
 use crate::post_list::PostListType;
 use crate::post_processor::*;
 use crate::util::toml_date::TomlDate;
@@ -15,8 +16,7 @@ use chrono::Duration;
 use ntex::web;
 use ntex::web::HttpRequest;
 use ntex_files::NamedFile;
-use spdlog::{debug, error, info};
-use tokio::sync::mpsc::Sender;
+use spdlog::{debug, info};
 
 struct AppState {
     /// Links of posts. E.g. my-blog.ca/view/my_post_url
@@ -30,7 +30,7 @@ struct AppState {
     /// Cache for post and page summary, used in listing
     summary_cache: RwLock<ContentCache<Content>>,
     /// Sender to generate access metrics
-    metric_sender: Option<Sender<MetricEvent>>,
+    metric_sender: MetricSender,
 }
 
 // Begin: Redirect region --------
@@ -53,10 +53,13 @@ async fn page_wo_slash(path: web::types::Path<String>) -> web::HttpResponse {
 
 #[web::get("/page/{page}/")]
 async fn page(
+    req: HttpRequest,
     page_name: web::types::Path<String>,
     app_state: web::types::State<Arc<AppState>>,
 ) -> web::HttpResponse {
     let page_name = page_name.into_inner();
+    let origin: String = get_origin(&req);
+    app_state.metric_sender.page(page_name.clone(), origin).await;
 
     let read_cache = app_state.post_cache.read().unwrap();
     let rendered_page = match read_cache.get_page(&page_name) {
@@ -96,11 +99,7 @@ async fn view(
     let post_name = post_name.into_inner();
 
     let origin: String = get_origin(&req);
-    if let Some(ref metric) = app_state.metric_sender {
-        if let Err(e) = metric.send(MetricEvent { post_name: post_name.clone(), origin }).await {
-            error!("Error writing metrics: {}", e);
-        };
-    }
+    app_state.metric_sender.view(post_name.clone(), origin).await;
 
     let read_cache = app_state.post_cache.read().unwrap();
     let rendered_post = match read_cache.get_post(&post_name) {
@@ -136,6 +135,9 @@ async fn list(
     req: HttpRequest,
     app_state: web::types::State<Arc<AppState>>,
 ) -> web::HttpResponse {
+    let origin: String = get_origin(&req);
+    app_state.metric_sender.list(None, origin).await;
+
     let config = app_state.config.read().unwrap();
     let preview_opt = get_preview_option(&config);
     let post_links = app_state.post_links.read().unwrap();
@@ -169,6 +171,10 @@ async fn list_with_tags(
     app_state: web::types::State<Arc<AppState>>,
 ) -> web::HttpResponse {
     let tag = path.into_inner();
+
+    let origin: String = get_origin(&req);
+    app_state.metric_sender.list(Some(tag.clone()), origin).await;
+
     let config = app_state.config.read().unwrap();
     let preview_opt = get_preview_option(&config);
     let post_links = app_state.post_links.read().unwrap();
@@ -197,9 +203,12 @@ async fn list_with_tags(
 
 #[web::get("/rss")]
 async fn rss(
-    _req: HttpRequest,
+    req: HttpRequest,
     app_state: web::types::State<Arc<AppState>>,
 ) -> web::HttpResponse {
+    let origin: String = get_origin(&req);
+    app_state.metric_sender.rss(origin).await;
+
     let config = app_state.config.read().unwrap();
     let post_links = &app_state.post_links.read().unwrap();
     if let Some(ref rss_feed) = config.rss_feed {
@@ -265,9 +274,12 @@ async fn public_files(
 
 #[web::get("/")]
 async fn index(
-    req: web::HttpRequest,
+    req: HttpRequest,
     app_state: web::types::State<Arc<AppState>>,
 ) -> web::HttpResponse {
+    let origin: String = get_origin(&req);
+    app_state.metric_sender.index(origin).await;
+
     let read_cache = app_state.post_cache.read().unwrap();
     let page_name = "-index-page";
 
@@ -357,9 +369,9 @@ pub async fn server_run(config: Config) -> Result<()> {
         let metrics = MetricWriter::new(location, time_slot)?;
         let metric_handler = MetricHandler::new(metrics);
         let sender = metric_handler.new_sender();
-        (Some(sender), Some(metric_handler))
+        (sender, Some(metric_handler))
     } else {
-        (None, None)
+        (MetricHandler::no_op(), None)
     };
 
     let post_links = RwLock::new(post_links);

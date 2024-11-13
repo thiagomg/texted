@@ -1,5 +1,6 @@
 use crate::metrics::metric_aggregator::MetricAggregator;
 use crate::metrics::metric_publisher::MetricPublisher;
+use crate::metrics::metric_sender::MetricSender;
 use chrono::Duration;
 use spdlog::{debug, error, info, trace};
 use std::io;
@@ -8,9 +9,10 @@ use tokio::sync::mpsc;
 use tokio::sync::mpsc::Sender;
 use tokio::task::JoinHandle;
 
-pub mod metric_publisher;
-mod metric_aggregator;
 mod event_slot;
+mod metric_aggregator;
+pub mod metric_publisher;
+pub mod metric_sender;
 
 pub struct MetricWriter {
     metric_aggregator: MetricAggregator,
@@ -47,8 +49,28 @@ impl MetricWriter {
 
 // -----------
 
-pub struct MetricEvent {
+pub struct PostDetail {
     pub post_name: String,
+}
+
+pub struct PageDetail {
+    pub page_name: String,
+}
+
+pub struct ListDetail {
+    pub tag: Option<String>,
+}
+
+pub enum EventApi {
+    View(PostDetail),
+    Page(PageDetail),
+    List(ListDetail),
+    Index,
+    Rss,
+}
+
+pub struct MetricEvent {
+    pub api: EventApi,
     pub origin: String,
 }
 
@@ -66,10 +88,20 @@ impl MetricHandler {
             loop {
                 match tokio::time::timeout(std::time::Duration::from_secs(1), rx.recv()).await {
                     Ok(Some(event)) => {
-                        if let Err(e) = metrics.add(&event.post_name, &event.origin) {
-                            error!("Error writing access metric for {}: {}", &event.post_name, e);
-                        } else {
-                            debug!("Metric event written for {}", &event.post_name);
+                        let res: io::Result<()> = match event.api {
+                            EventApi::View(post) => {
+                                debug!("Writing metric event written for {}", &post.post_name);
+                                metrics.add(post.post_name.as_str(), event.origin.as_str())
+                            }
+                            EventApi::Page(_) => Ok(()), // TODO
+                            EventApi::List(_) => Ok(()), // TODO
+                            EventApi::Index => Ok(()),   // TODO
+                            EventApi::Rss => Ok(()),     // TODO
+                        };
+
+                        // if let Err(e) = metrics.add(&event.post_name, &event.origin) {
+                        if let Err(e) = res {
+                            error!("Error writing access metric: {}", e);
                         }
                     }
                     Ok(None) => break,
@@ -89,7 +121,11 @@ impl MetricHandler {
         }
     }
 
-    pub fn new_sender(&self) -> Sender<MetricEvent> {
-        self.sender.clone()
+    pub fn new_sender(&self) -> MetricSender {
+        MetricSender::new(self.sender.clone())
+    }
+
+    pub fn no_op() -> MetricSender {
+        MetricSender::no_op()
     }
 }
