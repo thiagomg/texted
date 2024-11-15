@@ -2,12 +2,12 @@ use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::{Arc, RwLock};
 
-
 use crate::config::Config;
 use crate::content::Content;
 use crate::content_cache::{ContentCache, Expire};
+use crate::metrics::metric_handler::MetricHandler;
 use crate::metrics::metric_sender::MetricSender;
-use crate::metrics::{MetricHandler, MetricWriter};
+use crate::metrics::metric_writer::MetricWriter;
 use crate::post_list::PostListType;
 use crate::post_processor::*;
 use crate::util::toml_date::TomlDate;
@@ -59,7 +59,10 @@ async fn page(
 ) -> web::HttpResponse {
     let page_name = page_name.into_inner();
     let origin: String = get_origin(&req);
-    app_state.metric_sender.page(page_name.clone(), origin).await;
+    app_state
+        .metric_sender
+        .page(page_name.clone(), origin)
+        .await;
 
     let read_cache = app_state.post_cache.read().unwrap();
     let rendered_page = match read_cache.get_page(&page_name) {
@@ -83,7 +86,8 @@ async fn page(
             debug!("Returning cached page for {}", &page_name);
             content
         }
-    }.to_string();
+    }
+    .to_string();
 
     web::HttpResponse::Ok()
         .content_type("text/html; charset=utf-8")
@@ -99,7 +103,10 @@ async fn view(
     let post_name = post_name.into_inner();
 
     let origin: String = get_origin(&req);
-    app_state.metric_sender.view(post_name.clone(), origin).await;
+    app_state
+        .metric_sender
+        .view(post_name.clone(), origin)
+        .await;
 
     let read_cache = app_state.post_cache.read().unwrap();
     let rendered_post = match read_cache.get_post(&post_name) {
@@ -123,7 +130,8 @@ async fn view(
             debug!("Returning cached post for {}", &post_name);
             content
         }
-    }.to_string();
+    }
+    .to_string();
 
     web::HttpResponse::Ok()
         .content_type("text/html; charset=utf-8")
@@ -131,10 +139,7 @@ async fn view(
 }
 
 #[web::get("/list")]
-async fn list(
-    req: HttpRequest,
-    app_state: web::types::State<Arc<AppState>>,
-) -> web::HttpResponse {
+async fn list(req: HttpRequest, app_state: web::types::State<Arc<AppState>>) -> web::HttpResponse {
     let origin: String = get_origin(&req);
     app_state.metric_sender.list(None, origin).await;
 
@@ -142,13 +147,14 @@ async fn list(
     let preview_opt = get_preview_option(&config);
     let post_links = app_state.post_links.read().unwrap();
 
-    let rendered_posts = match retrieve_post_list(&app_state.summary_cache, &post_links, None, &preview_opt) {
-        Ok(posts) => posts,
-        Err(e) => {
-            return web::HttpResponse::InternalServerError()
-                .body(format!("Error listing posts: {}", e))
-        }
-    };
+    let rendered_posts =
+        match retrieve_post_list(&app_state.summary_cache, &post_links, None, &preview_opt) {
+            Ok(posts) => posts,
+            Err(e) => {
+                return web::HttpResponse::InternalServerError()
+                    .body(format!("Error listing posts: {}", e))
+            }
+        };
 
     let cur_page: u32 = get_cur_page(req);
     let post_list = match render_list(&config, rendered_posts, cur_page) {
@@ -173,13 +179,21 @@ async fn list_with_tags(
     let tag = path.into_inner();
 
     let origin: String = get_origin(&req);
-    app_state.metric_sender.list(Some(tag.clone()), origin).await;
+    app_state
+        .metric_sender
+        .list(Some(tag.clone()), origin)
+        .await;
 
     let config = app_state.config.read().unwrap();
     let preview_opt = get_preview_option(&config);
     let post_links = app_state.post_links.read().unwrap();
 
-    let rendered_posts = match retrieve_post_list(&app_state.summary_cache, &post_links, Some(tag), &preview_opt) {
+    let rendered_posts = match retrieve_post_list(
+        &app_state.summary_cache,
+        &post_links,
+        Some(tag),
+        &preview_opt,
+    ) {
         Ok(posts) => posts,
         Err(e) => {
             return web::HttpResponse::InternalServerError()
@@ -202,10 +216,7 @@ async fn list_with_tags(
 }
 
 #[web::get("/rss")]
-async fn rss(
-    req: HttpRequest,
-    app_state: web::types::State<Arc<AppState>>,
-) -> web::HttpResponse {
+async fn rss(req: HttpRequest, app_state: web::types::State<Arc<AppState>>) -> web::HttpResponse {
     let origin: String = get_origin(&req);
     app_state.metric_sender.rss(origin).await;
 
@@ -213,13 +224,14 @@ async fn rss(
     let post_links = &app_state.post_links.read().unwrap();
     if let Some(ref rss_feed) = config.rss_feed {
         let preview_opt = get_preview_option(&config);
-        let rendered_posts = match retrieve_post_list(&app_state.summary_cache, post_links, None, &preview_opt) {
-            Ok(posts) => posts,
-            Err(e) => {
-                return web::HttpResponse::InternalServerError()
-                    .body(format!("Error listing posts: {}", e))
-            }
-        };
+        let rendered_posts =
+            match retrieve_post_list(&app_state.summary_cache, post_links, None, &preview_opt) {
+                Ok(posts) => posts,
+                Err(e) => {
+                    return web::HttpResponse::InternalServerError()
+                        .body(format!("Error listing posts: {}", e))
+                }
+            };
 
         let post_list = match render_rss(rss_feed, rendered_posts) {
             Ok(posts) => posts,
@@ -273,10 +285,7 @@ async fn public_files(
 }
 
 #[web::get("/")]
-async fn index(
-    req: HttpRequest,
-    app_state: web::types::State<Arc<AppState>>,
-) -> web::HttpResponse {
+async fn index(req: HttpRequest, app_state: web::types::State<Arc<AppState>>) -> web::HttpResponse {
     let origin: String = get_origin(&req);
     app_state.metric_sender.index(origin).await;
 
@@ -293,7 +302,13 @@ async fn index(
             let TomlDate(blog_start_date) = config.personal.blog_start_date;
             let activity_start_year = config.personal.activity_start_year;
 
-            let rendered_post = match render_index(req, num_of_posts, &config.paths.template_dir, activity_start_year, blog_start_date) {
+            let rendered_post = match render_index(
+                req,
+                num_of_posts,
+                &config.paths.template_dir,
+                activity_start_year,
+                blog_start_date,
+            ) {
                 Ok(rendered_post) => rendered_post,
                 Err(e) => {
                     return web::HttpResponse::BadRequest()
@@ -307,7 +322,8 @@ async fn index(
             rw_cache.add_page(page_name, rendered_post, Expire::After(Duration::days(1)))
         }
         Some(rendered) => rendered,
-    }.to_string();
+    }
+    .to_string();
 
     web::HttpResponse::Ok()
         .content_type("text/html; charset=utf-8")
@@ -352,14 +368,8 @@ pub async fn server_run(config: Config) -> Result<()> {
         .collect();
 
     let (post_cache, summary_cache) = match config.defaults.rendering_cache_enabled {
-        true => (
-            ContentCache::new(),
-            ContentCache::new(),
-        ),
-        false => (
-            ContentCache::non_caching(),
-            ContentCache::non_caching(),
-        ),
+        true => (ContentCache::new(), ContentCache::new()),
+        false => (ContentCache::non_caching(), ContentCache::non_caching()),
     };
 
     let (metric_sender, _metrics) = if let Some(ref metrics_cfg) = config.metrics {
@@ -406,8 +416,8 @@ pub async fn server_run(config: Config) -> Result<()> {
             .service(page_wo_slash)
             .service(page_files)
     })
-        .bind((bind_addr, bind_port))?
-        .run()
-        .await
-        .map_err(anyhow::Error::from)
+    .bind((bind_addr, bind_port))?
+    .run()
+    .await
+    .map_err(anyhow::Error::from)
 }

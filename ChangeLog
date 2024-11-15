@@ -1,3 +1,9 @@
+Version 1.1.1
+- Adding a better interface to send metrics (other than sender::send)
+- Add API to MetricEvent (e.g. /view, /page, /list, etc)
+- New more friendly metric file format
+- Dependencies upgraded
+
 Version 1.1.0
 - Added total visits and unique visits to metrics
 - Metric aggregation time slot is now configurable

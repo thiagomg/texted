@@ -1,5 +1,5 @@
-use crate::metrics::EventApi::{Index, List, Page, Rss, View};
-use crate::metrics::{ListDetail, MetricEvent, PageDetail, PostDetail};
+use crate::metrics::metric_types::EventApi::{Index, List, Page, Rss, View};
+use crate::metrics::metric_types::{ListDetail, MetricEvent, PageDetail, PostDetail};
 use spdlog::error;
 use tokio::sync::mpsc::Sender;
 

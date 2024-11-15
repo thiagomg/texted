@@ -1,11 +1,13 @@
 use crate::metrics::metric_aggregator::Event;
+use crate::metrics::metric_types::EventApi;
 use chrono::{DateTime, Duration, Utc};
 use serde::Serialize;
 use std::collections::HashSet;
 
 #[derive(Debug, Default, PartialEq, Serialize)]
 pub struct EventSlot {
-    pub post_name: String,
+    pub key: String,
+    pub value: String,
     pub unique_total: u64,
     pub total: u64,
     pub origins: HashSet<String>,
@@ -17,16 +19,39 @@ impl EventSlot {
     pub fn from_event(event: Event, slot_size: &Duration) -> Self {
         let (stats_date_start, stats_date_end) = get_slot(&event.date_time, slot_size);
         let mut origins = HashSet::<String>::new();
-        origins.insert(event.origin);
+        origins.insert(event.metric_event.origin.clone());
+
+        let (key, value) = Self::get_key_val(&event);
 
         EventSlot {
-            post_name: event.post_name,
+            key,
+            value,
             unique_total: event.total,
             total: event.total,
             origins,
             stats_date_start,
             stats_date_end,
         }
+    }
+
+    pub fn key_from(event: &Event) -> String {
+        let (key, value) = Self::get_key_val(&event);
+        format!("{}={}", key, value)
+    }
+
+    fn get_key_val(event: &Event) -> (String, String) {
+        let (key, value) = match &event.metric_event.api {
+            EventApi::View(detail) => ("view", detail.post_name.as_str()),
+            EventApi::Page(detail) => ("page", detail.page_name.as_str()),
+            EventApi::List(detail) => match &detail.tag {
+                None => ("list", ""),
+                Some(tag) => ("list", tag.as_str()),
+            },
+            EventApi::Index => ("index", ""),
+            EventApi::Rss => ("rss", ""),
+        };
+
+        (key.to_string(), value.to_string())
     }
 }
 
