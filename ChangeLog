@@ -1,3 +1,6 @@
+Version 1.2.0
+- Enabled Link-Time Optimization and updated dependencies
+
 Version 1.1.1
 - Adding a better interface to send metrics (other than sender::send)
 - Add API to MetricEvent (e.g. /view, /page, /list, etc)
