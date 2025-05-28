@@ -1,5 +1,5 @@
 <a href="https://gitlab.com/thiagomg/texted2"><img height="100%"
-src="https://gitlab.com/thiagomg/texted2/-/raw/62124a2716d0f702f42d2700788c6528e71f6af1/Texted-logo.png"></a>
+src="https://raw.githubusercontent.com/thiagomg/texted/refs/heads/main/Texted-logo.png"></a>
 
 # Texted - Free your text!
 
