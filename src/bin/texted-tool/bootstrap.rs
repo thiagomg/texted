@@ -96,6 +96,7 @@ mod tests {
         assert!(res.contains(r##"public_dir = "/abs/path/public""##));
         assert!(res.contains(r##"posts_dir = "/abs/path/posts""##));
         assert!(res.contains(r##"pages_dir = "/abs/path/pages""##));
+        assert!(res.contains(r##"dir = "/abs/path/comments""##));
         let res = replace_date(&res);
         let blog_start_date = format!("blog_start_date = {}", get_current_date());
         assert!(res.contains(&blog_start_date));

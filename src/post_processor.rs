@@ -4,6 +4,7 @@ use std::path::{Path, PathBuf};
 use std::sync::{Arc, RwLock};
 use std::{fs, io};
 
+use crate::comments::CommentsContext;
 use crate::config::{Config, RssFeed};
 use crate::content::content_file::ContentFile;
 use crate::content::content_format::ContentFormat;
@@ -123,24 +124,31 @@ pub fn render_index(req: HttpRequest, num_of_posts: usize, tpl_dir: &Path,
     Ok(rendered)
 }
 
-pub fn open_content(config: &Config, link_to_files: &HashMap<String, PathBuf>, template_filename: &str, link: &str) -> io::Result<String> {
+pub fn load_content(link_to_files: &HashMap<String, PathBuf>, link: &str) -> io::Result<Content> {
     let content_path = match link_to_files.get(link) {
         None => return Err(io::Error::new(io::ErrorKind::NotFound, "Could not find post")),
         Some(path) => path,
     }.clone();
 
     let content_file = ContentFile::from_file(link.to_string(), content_path)?;
-    let content = match content_file.format {
+    match content_file.format {
         ContentFormat::Texted => TextedRenderer::render(&content_file, RenderOptions::FullContent),
         ContentFormat::Html => HtmlRenderer::render(&content_file, RenderOptions::FullContent),
-    }?;
+    }
+}
 
+pub fn render_content(config: &Config, template_filename: &str, content: &Content, comments: &CommentsContext) -> io::Result<String> {
     let template_dir = &config.paths.template_dir;
     let template_path = template_dir.join(template_filename);
     let template_src = fs::read_to_string(&template_path)?;
 
     let post_renderer = PostRenderer::new(&template_src)?;
-    Ok(post_renderer.render(&content))
+    Ok(post_renderer.render(content, comments))
+}
+
+pub fn open_content(config: &Config, link_to_files: &HashMap<String, PathBuf>, template_filename: &str, link: &str) -> io::Result<String> {
+    let content = load_content(link_to_files, link)?;
+    render_content(config, template_filename, &content, &CommentsContext::disabled())
 }
 
 pub fn get_cur_page(req: HttpRequest) -> u32 {
@@ -313,15 +321,17 @@ mod tests {
     #[test]
     fn test_extract_last() {
         let list_type = PostListType::IndexBaseName("index".to_string());
-        let posts = list_post_files(&PathBuf::from("res/posts"), &list_type).unwrap();
-        
-        let expected = vec![
+        let mut posts = list_post_files(&PathBuf::from("res/posts"), &list_type).unwrap();
+        posts.sort_by(|a, b| a.post_name.cmp(&b.post_name));
+
+        let mut expected = vec![
             PostLink { post_name: "html_post_with_image".to_string(), post_path: PathBuf::from("res/posts/html_post_with_image/index.html") },
             PostLink { post_name: "post_with_image".to_string(), post_path: PathBuf::from("res/posts/post_with_image/index.md") },
             PostLink { post_name: "html_post".to_string(), post_path: PathBuf::from("res/posts/html_post.htm") },
             PostLink { post_name: "post_without_images".to_string(), post_path: PathBuf::from("res/posts/post_without_images.md") },
             PostLink { post_name: "new_post".to_string(), post_path: PathBuf::from("res/posts/new_post.md") },
         ];
+        expected.sort_by(|a, b| a.post_name.cmp(&b.post_name));
         assert_eq!(expected, posts);
     }
 }

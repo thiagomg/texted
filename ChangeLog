@@ -1,3 +1,7 @@
+Version 1.3.0
+- Added per-post comments stored as JSONL files
+- Added a math captcha on the comment form to limit spam
+
 Version 1.2.1
 - Changed repository URL
 

@@ -2,6 +2,7 @@ use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::{Arc, RwLock};
 
+use crate::comments::{comment_error_message, CaptchaStore, Comment, CommentStore, CommentsContext};
 use crate::config::Config;
 use crate::content::Content;
 use crate::content_cache::{ContentCache, Expire};
@@ -10,13 +11,15 @@ use crate::metrics::metric_sender::MetricSender;
 use crate::metrics::metric_writer::MetricWriter;
 use crate::post_list::PostListType;
 use crate::post_processor::*;
+use crate::query_string::QueryString;
 use crate::util::toml_date::TomlDate;
 use anyhow::Result;
 use chrono::Duration;
 use ntex::web;
 use ntex::web::HttpRequest;
 use ntex_files::NamedFile;
-use spdlog::{debug, info};
+use serde::Deserialize;
+use spdlog::{debug, info, warn};
 
 struct AppState {
     /// Links of posts. E.g. my-blog.ca/view/my_post_url
@@ -27,10 +30,28 @@ struct AppState {
     config: RwLock<Config>,
     /// Cache for post and page contents
     post_cache: RwLock<ContentCache<String>>,
+    /// Cache for fully rendered post bodies (markdown/html), used before the view template
+    post_content_cache: RwLock<ContentCache<Content>>,
     /// Cache for post and page summary, used in listing
     summary_cache: RwLock<ContentCache<Content>>,
     /// Sender to generate access metrics
     metric_sender: MetricSender,
+    /// File-backed comments and captcha challenges, when enabled
+    comments: Option<CommentServices>,
+}
+
+struct CommentServices {
+    store: CommentStore,
+    captcha: CaptchaStore,
+}
+
+#[derive(Deserialize)]
+struct CommentForm {
+    author: Option<String>,
+    body: Option<String>,
+    captcha_id: Option<String>,
+    captcha_answer: Option<String>,
+    website: Option<String>,
 }
 
 // Begin: Redirect region --------
@@ -108,34 +129,95 @@ async fn view(
         .view(post_name.clone(), origin)
         .await;
 
-    let read_cache = app_state.post_cache.read().unwrap();
-    let rendered_post = match read_cache.get_post(&post_name) {
-        None => {
-            // Let's load and update the cache
-            drop(read_cache);
-            let mut write_cache = app_state.post_cache.write().unwrap();
-            info!("Rendering post {} from file", post_name);
-            let config = &app_state.config.read().unwrap();
-            let post_links = &app_state.post_links.read().unwrap();
-            let content = match open_content(config, post_links, "view.tpl", &post_name) {
-                Ok(content) => content,
-                Err(e) => {
-                    return web::HttpResponse::BadRequest()
-                        .body(format!("Error loading post {}: {}", &post_name, e));
+    let content = {
+        let read_cache = app_state.post_content_cache.read().unwrap();
+        match read_cache.get_post(&post_name) {
+            None => {
+                drop(read_cache);
+                let mut write_cache = app_state.post_content_cache.write().unwrap();
+                info!("Rendering post {} from file", post_name);
+                let post_links = app_state.post_links.read().unwrap();
+                match load_content(&post_links, &post_name) {
+                    Ok(content) => write_cache.add_post(&post_name, content, Expire::Never),
+                    Err(e) => {
+                        return web::HttpResponse::BadRequest()
+                            .body(format!("Error loading post {}: {}", &post_name, e));
+                    }
                 }
-            };
-            write_cache.add_post(&post_name, content, Expire::Never)
+            }
+            Some(content) => {
+                debug!("Returning cached post content for {}", &post_name);
+                content
+            }
         }
-        Some(content) => {
-            debug!("Returning cached post for {}", &post_name);
-            content
+    };
+
+    let comments_ctx = build_comments_context(&app_state, &post_name, &req);
+    let config = app_state.config.read().unwrap();
+    let rendered_post = match render_content(&config, "view.tpl", content.as_ref(), &comments_ctx) {
+        Ok(html) => html,
+        Err(e) => {
+            return web::HttpResponse::BadRequest()
+                .body(format!("Error rendering post {}: {}", &post_name, e));
         }
-    }
-    .to_string();
+    };
 
     web::HttpResponse::Ok()
         .content_type("text/html; charset=utf-8")
         .body(rendered_post)
+}
+
+#[web::post("/view/{post}/comment")]
+async fn post_comment(
+    post_name: web::types::Path<String>,
+    form: web::types::Form<CommentForm>,
+    app_state: web::types::State<Arc<AppState>>,
+) -> web::HttpResponse {
+    let post_name = post_name.into_inner();
+
+    let Some(services) = app_state.comments.as_ref() else {
+        return web::HttpResponse::NotFound().body("Comments are disabled");
+    };
+
+    {
+        let post_links = app_state.post_links.read().unwrap();
+        if !post_links.contains_key(&post_name) {
+            return web::HttpResponse::NotFound().body("Post not found");
+        }
+    }
+
+    if form.website.as_deref().is_some_and(|v| !v.trim().is_empty()) {
+        info!("Dropped comment on {} because the honeypot field was filled", post_name);
+        return comment_redirect(&post_name, "comment_posted=1");
+    }
+
+    let captcha_ok = services.captcha.verify(
+        form.captcha_id.as_deref().unwrap_or(""),
+        form.captcha_answer.as_deref().unwrap_or(""),
+    );
+    if !captcha_ok {
+        warn!("Captcha failed for comment on {}", post_name);
+        return comment_redirect(&post_name, "comment_error=captcha");
+    }
+
+    let comment = match Comment::new(
+        form.author.clone().unwrap_or_default(),
+        form.body.clone().unwrap_or_default(),
+    ) {
+        Ok(comment) => comment,
+        Err(e) => return comment_redirect(&post_name, &format!("comment_error={}", e.code())),
+    };
+
+    match services.store.append(&post_name, &comment) {
+        Ok(()) => {
+            info!("Comment {} added to {}", comment.id, post_name);
+            comment_redirect(&post_name, "comment_posted=1")
+        }
+        Err(e) => {
+            warn!("Error saving comment on {}: {:?}", post_name, e);
+            comment_redirect(&post_name, &format!("comment_error={}", e.code()))
+        }
+    }
 }
 
 #[web::get("/list")]
@@ -330,6 +412,46 @@ async fn index(req: HttpRequest, app_state: web::types::State<Arc<AppState>>) ->
         .body(rendered_page)
 }
 
+fn build_comments_context(
+    app_state: &AppState,
+    post_name: &str,
+    req: &HttpRequest,
+) -> CommentsContext {
+    let Some(services) = app_state.comments.as_ref() else {
+        return CommentsContext::disabled();
+    };
+
+    let comments = match services.store.load(post_name) {
+        Ok(comments) => comments,
+        Err(e) => {
+            warn!("Error loading comments for {}: {}", post_name, e);
+            vec![]
+        }
+    };
+    let captcha = services.captcha.generate();
+    let (error, posted) = comment_feedback(req);
+    CommentsContext::from_comments(comments, captcha, error, posted)
+}
+
+fn comment_feedback(req: &HttpRequest) -> (String, bool) {
+    let Some(query) = req.uri().query() else {
+        return (String::new(), false);
+    };
+    let qs = QueryString::from(query);
+    let posted = qs.get("comment_posted").map(|s| s.as_str()) == Some("1");
+    let error = qs
+        .get("comment_error")
+        .map(|code| comment_error_message(code))
+        .unwrap_or_default();
+    (error, posted)
+}
+
+fn comment_redirect(post_name: &str, query: &str) -> web::HttpResponse {
+    web::HttpResponse::SeeOther()
+        .header("Location", format!("/view/{}/?{}#comments", post_name, query))
+        .finish()
+}
+
 fn get_origin(req: &web::HttpRequest) -> String {
     if let Some(header) = req.headers().get("X-Forwarded-For") {
         if let Ok(addr) = header.to_str() {
@@ -367,9 +489,13 @@ pub async fn server_run(config: Config) -> Result<()> {
         .map(|link| (link.post_name, link.post_path))
         .collect();
 
-    let (post_cache, summary_cache) = match config.defaults.rendering_cache_enabled {
-        true => (ContentCache::new(), ContentCache::new()),
-        false => (ContentCache::non_caching(), ContentCache::non_caching()),
+    let (post_cache, summary_cache, post_content_cache) = match config.defaults.rendering_cache_enabled {
+        true => (ContentCache::new(), ContentCache::new(), ContentCache::new()),
+        false => (
+            ContentCache::non_caching(),
+            ContentCache::non_caching(),
+            ContentCache::non_caching(),
+        ),
     };
 
     let (metric_sender, _metrics) = if let Some(ref metrics_cfg) = config.metrics {
@@ -384,12 +510,35 @@ pub async fn server_run(config: Config) -> Result<()> {
         (MetricHandler::no_op(), None)
     };
 
+    let comments = if let Some(ref comments_cfg) = config.comments {
+        match CommentStore::new(comments_cfg.dir.clone()) {
+            Ok(store) => {
+                info!(
+                    "Comments enabled. Files will be written in {}",
+                    comments_cfg.dir.display()
+                );
+                Some(CommentServices {
+                    store,
+                    captcha: CaptchaStore::new(),
+                })
+            }
+            Err(e) => {
+                warn!("Could not initialize comments store: {}", e);
+                None
+            }
+        }
+    } else {
+        info!("Comments disabled.");
+        None
+    };
+
     let post_links = RwLock::new(post_links);
     let page_links = RwLock::new(page_links);
     let bind_addr = config.server.address.clone();
     let bind_port = config.server.port;
     let config = RwLock::new(config);
     let post_cache = RwLock::new(post_cache);
+    let post_content_cache = RwLock::new(post_content_cache);
     let summary_cache = RwLock::new(summary_cache);
 
     let app_state = Arc::new(AppState {
@@ -397,8 +546,10 @@ pub async fn server_run(config: Config) -> Result<()> {
         page_links,
         config,
         post_cache,
+        post_content_cache,
         summary_cache,
         metric_sender,
+        comments,
     });
 
     web::HttpServer::new(move || {
@@ -410,6 +561,7 @@ pub async fn server_run(config: Config) -> Result<()> {
             .service(list_with_tags)
             .service(rss)
             .service(view)
+            .service(post_comment)
             .service(view_wo_slash)
             .service(post_files)
             .service(page)

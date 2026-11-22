@@ -1,5 +1,6 @@
 pub mod config;
 pub mod server;
+mod comments;
 mod post_list;
 mod test_data;
 mod text_utils;
