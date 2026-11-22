@@ -1,47 +1,40 @@
 use std::collections::HashMap;
-use std::path::PathBuf;
 use std::sync::{Arc, RwLock};
 
-use crate::comments::{comment_error_message, CaptchaStore, Comment, CommentStore, CommentsContext};
-use crate::config::Config;
-use crate::content::Content;
+use crate::comments::{
+    comment_error_message, CaptchaStore, Comment, CommentStore, CommentsContext,
+};
+use crate::config::{Config, RouteConfig};
 use crate::content_cache::{ContentCache, Expire};
 use crate::metrics::metric_handler::MetricHandler;
 use crate::metrics::metric_sender::MetricSender;
 use crate::metrics::metric_writer::MetricWriter;
-use crate::post_list::PostListType;
-use crate::post_processor::*;
+use crate::post_processor::{get_cur_page, render_index};
 use crate::query_string::QueryString;
+use crate::routes::{content_url, safe_segment, Routes};
 use crate::util::toml_date::TomlDate;
+use crate::view::{
+    list_renderer::ListRenderer, post_renderer::PostRenderer, rss_renderer::RssChannel,
+};
 use anyhow::Result;
 use chrono::Duration;
 use ntex::web;
 use ntex::web::HttpRequest;
 use ntex_files::NamedFile;
+use percent_encoding::percent_decode_str;
 use serde::Deserialize;
-use spdlog::{debug, info, warn};
+use spdlog::{info, warn};
 
 struct AppState {
-    /// Links of posts. E.g. my-blog.ca/view/my_post_url
-    post_links: RwLock<HashMap<String, PathBuf>>,
-    /// Links of posts. E.g. my-blog.ca/page/my_bio
-    page_links: RwLock<HashMap<String, PathBuf>>,
-    /// Texted configuration
+    routes: Routes,
     config: RwLock<Config>,
-    /// Cache for post and page contents
     post_cache: RwLock<ContentCache<String>>,
-    /// Cache for fully rendered post bodies (markdown/html), used before the view template
-    post_content_cache: RwLock<ContentCache<Content>>,
-    /// Cache for post and page summary, used in listing
-    summary_cache: RwLock<ContentCache<Content>>,
-    /// Sender to generate access metrics
     metric_sender: MetricSender,
-    /// File-backed comments and captcha challenges, when enabled
     comments: Option<CommentServices>,
 }
 
 struct CommentServices {
-    store: CommentStore,
+    stores: HashMap<String, CommentStore>,
     captcha: CaptchaStore,
 }
 
@@ -54,301 +47,260 @@ struct CommentForm {
     website: Option<String>,
 }
 
-// Begin: Redirect region --------
-#[web::get("/view/{post}")]
-async fn view_wo_slash(path: web::types::Path<String>) -> web::HttpResponse {
-    web::HttpResponse::TemporaryRedirect()
-        .header("Location", format!("{}/", path.into_inner()))
-        .content_type("text/html; charset=utf-8")
-        .finish()
-}
-
-#[web::get("/page/{post}")]
-async fn page_wo_slash(path: web::types::Path<String>) -> web::HttpResponse {
-    web::HttpResponse::TemporaryRedirect()
-        .header("Location", format!("{}/", path.into_inner()))
-        .content_type("text/html; charset=utf-8")
-        .finish()
-}
-// End: Redirect region --------
-
-#[web::get("/page/{page}/")]
-async fn page(
-    req: HttpRequest,
-    page_name: web::types::Path<String>,
-    app_state: web::types::State<Arc<AppState>>,
-) -> web::HttpResponse {
-    let page_name = page_name.into_inner();
-    let origin: String = get_origin(&req);
-    app_state
-        .metric_sender
-        .page(page_name.clone(), origin)
-        .await;
-
-    let read_cache = app_state.post_cache.read().unwrap();
-    let rendered_page = match read_cache.get_page(&page_name) {
-        None => {
-            // Let's load and update the cache
-            drop(read_cache);
-            let mut write_cache = app_state.post_cache.write().unwrap();
-            info!("Rendering page {} from file", page_name);
-            let config = &app_state.config.read().unwrap();
-            let page_links = &app_state.page_links.read().unwrap();
-            let content = match open_content(config, page_links, "page.tpl", &page_name) {
-                Ok(content) => content,
-                Err(e) => {
-                    return web::HttpResponse::BadRequest()
-                        .body(format!("Error loading page {}: {}", &page_name, e));
-                }
-            };
-            write_cache.add_page(&page_name, content, Expire::Never)
-        }
-        Some(content) => {
-            debug!("Returning cached page for {}", &page_name);
-            content
+fn html(result: std::io::Result<String>) -> web::HttpResponse {
+    match result {
+        Ok(body) => web::HttpResponse::Ok()
+            .content_type("text/html; charset=utf-8")
+            .body(body),
+        Err(error) => {
+            warn!("Error rendering content: {}", error);
+            web::HttpResponse::InternalServerError().body("Error rendering content")
         }
     }
-    .to_string();
-
-    web::HttpResponse::Ok()
-        .content_type("text/html; charset=utf-8")
-        .body(rendered_page)
 }
 
-#[web::get("/view/{post}/")]
-async fn view(
+#[web::get("/{tail}*")]
+async fn configured_route(
     req: HttpRequest,
-    post_name: web::types::Path<String>,
     app_state: web::types::State<Arc<AppState>>,
 ) -> web::HttpResponse {
-    let post_name = post_name.into_inner();
-
-    let origin: String = get_origin(&req);
-    app_state
-        .metric_sender
-        .view(post_name.clone(), origin)
-        .await;
-
-    let content = {
-        let read_cache = app_state.post_content_cache.read().unwrap();
-        match read_cache.get_post(&post_name) {
-            None => {
-                drop(read_cache);
-                let mut write_cache = app_state.post_content_cache.write().unwrap();
-                info!("Rendering post {} from file", post_name);
-                let post_links = app_state.post_links.read().unwrap();
-                match load_content(&post_links, &post_name) {
-                    Ok(content) => write_cache.add_post(&post_name, content, Expire::Never),
-                    Err(e) => {
-                        return web::HttpResponse::BadRequest()
-                            .body(format!("Error loading post {}: {}", &post_name, e));
-                    }
-                }
-            }
-            Some(content) => {
-                debug!("Returning cached post content for {}", &post_name);
-                content
+    // Split the raw path before decoding so an encoded slash stays in its segment.
+    let path = req.path().trim_start_matches('/').trim_end_matches('/');
+    let Ok(parts) = path
+        .split('/')
+        .map(|part| percent_decode_str(part).decode_utf8())
+        .collect::<Result<Vec<_>, _>>()
+    else {
+        return web::HttpResponse::NotFound().finish();
+    };
+    let parts: Vec<_> = parts.iter().map(|part| part.as_ref()).collect();
+    let prefix = parts[0];
+    let Some(route) = app_state.routes.definitions.get(prefix) else {
+        return web::HttpResponse::NotFound().finish();
+    };
+    let listing = matches!(route, RouteConfig::Postlist { .. });
+    if listing {
+        if parts.len() > 2 || parts.get(1).is_some_and(|tag| tag.is_empty()) {
+            return web::HttpResponse::NotFound().finish();
+        }
+    } else if !(2..=3).contains(&parts.len()) || !parts[1..].iter().all(|part| safe_segment(part)) {
+        return web::HttpResponse::NotFound().finish();
+    }
+    if !listing && !app_state.routes.files[prefix].contains_key(parts[1]) {
+        return web::HttpResponse::NotFound().finish();
+    }
+    if parts.len() == 3 {
+        return match app_state
+            .routes
+            .attachment(prefix, parts[1], parts[2])
+            .and_then(NamedFile::open)
+        {
+            Ok(file) => file.into_response(&req),
+            Err(_) => web::HttpResponse::NotFound().finish(),
+        };
+    }
+    if !req.path().ends_with('/') && !(prefix == "list" && listing && parts.len() == 1) {
+        let mut location = format!("{}/", req.path());
+        if let Some(query) = req.uri().query() {
+            location.push('?');
+            location.push_str(query);
+        }
+        return web::HttpResponse::TemporaryRedirect()
+            .header("Location", location)
+            .finish();
+    }
+    let origin = get_origin(&req);
+    match route {
+        RouteConfig::Postlist { .. } => {
+            if prefix == "list" {
+                app_state
+                    .metric_sender
+                    .list(parts.get(1).map(|tag| tag.to_string()), origin)
+                    .await;
+            } else {
+                app_state.metric_sender.page(parts.join("/"), origin).await;
             }
         }
-    };
-
-    let comments_ctx = build_comments_context(&app_state, &post_name, &req);
+        RouteConfig::Post(_) => {
+            app_state
+                .metric_sender
+                .view(
+                    if prefix == "view" {
+                        parts[1].into()
+                    } else {
+                        parts.join("/")
+                    },
+                    origin,
+                )
+                .await;
+        }
+        RouteConfig::Page(_) => {
+            app_state
+                .metric_sender
+                .page(
+                    if prefix == "page" {
+                        parts[1].into()
+                    } else {
+                        parts.join("/")
+                    },
+                    origin,
+                )
+                .await;
+        }
+    }
     let config = app_state.config.read().unwrap();
-    let rendered_post = match render_content(&config, "view.tpl", content.as_ref(), &comments_ctx) {
-        Ok(html) => html,
-        Err(e) => {
-            return web::HttpResponse::BadRequest()
-                .body(format!("Error rendering post {}: {}", &post_name, e));
+    if let RouteConfig::Postlist { source, template } = route {
+        return html((|| {
+            let mut contents = app_state.routes.ordered(&config, source, true)?;
+            let mut frequencies = HashMap::<String, usize>::new();
+            for tag in contents.iter().flat_map(|content| &content.header.tags) {
+                *frequencies.entry(tag.clone()).or_default() += 1;
+            }
+            let mut ranked_tags: Vec<_> = frequencies.into_iter().collect();
+            ranked_tags.sort_by(|a, b| b.1.cmp(&a.1).then_with(|| a.0.cmp(&b.0)));
+            let tags = ranked_tags.into_iter().map(|(tag, _)| tag).collect();
+            let query = QueryString::from(req.uri().query().unwrap_or_default());
+            let query_tag = query.get("tag").map(String::as_str);
+            let path_tag = parts.get(1).copied();
+            if let Some(tag) = path_tag.or(query_tag) {
+                contents.retain(|c| c.header.tags.iter().any(|t| t == tag));
+            }
+            let pagination_query = match (path_tag, query_tag) {
+                (None, Some(tag)) => format!("?tag={}&page=", crate::routes::segment(tag)),
+                _ => "?page=".into(),
+            };
+            let size = config.defaults.page_size as usize;
+            let paginator = crate::paginator::Paginator::from(&contents, size as u32);
+            let count = paginator.page_count();
+            let requested = get_cur_page(req.clone());
+            let current = if requested > count { 1 } else { requested };
+            let page_contents = if contents.is_empty() {
+                &[][..]
+            } else {
+                paginator.get_page(current).map_err(std::io::Error::other)?
+            };
+            let mut context = app_state.routes.context(source, None);
+            context.listing_url = format!("/{prefix}/");
+            let template = std::fs::read_to_string(config.paths.template_dir.join(template))?;
+            let renderer = ListRenderer::new(&template, count)?;
+            Ok(renderer.render_route(
+                page_contents,
+                current,
+                tags,
+                source,
+                &pagination_query,
+                &context,
+            ))
+        })());
+    }
+    let slug = parts[1];
+    let page_key = format!("route/{prefix}/{slug}");
+    if matches!(route, RouteConfig::Page(_)) {
+        if let Some(cached) = app_state.post_cache.read().unwrap().get_page(&page_key) {
+            return web::HttpResponse::Ok()
+                .content_type("text/html; charset=utf-8")
+                .body(cached.to_string());
         }
-    };
-
-    web::HttpResponse::Ok()
-        .content_type("text/html; charset=utf-8")
-        .body(rendered_post)
+    }
+    html((|| {
+        let content = app_state.routes.load(&config, prefix, slug, false)?;
+        let context = app_state.routes.context(prefix, Some(slug));
+        let comments = if matches!(route, RouteConfig::Post(_)) {
+            build_comments_context(&app_state, prefix, slug, &req)
+        } else {
+            CommentsContext::disabled()
+        };
+        let template = std::fs::read_to_string(config.paths.template_dir.join(route.template()))?;
+        let rendered = PostRenderer::new(&template)?.render_route(&content, &comments, &context);
+        if matches!(route, RouteConfig::Page(_)) {
+            app_state.post_cache.write().unwrap().add_page(
+                &page_key,
+                rendered.clone(),
+                Expire::Never,
+            );
+        }
+        Ok(rendered)
+    })())
 }
 
-#[web::post("/view/{post}/comment")]
+#[web::post("/{prefix}/{slug}/comment")]
 async fn post_comment(
-    post_name: web::types::Path<String>,
+    path: web::types::Path<(String, String)>,
     form: web::types::Form<CommentForm>,
     app_state: web::types::State<Arc<AppState>>,
 ) -> web::HttpResponse {
-    let post_name = post_name.into_inner();
-
+    let (prefix, post_name) = path.into_inner();
     let Some(services) = app_state.comments.as_ref() else {
         return web::HttpResponse::NotFound().body("Comments are disabled");
     };
-
+    let Some(store) = services.stores.get(&prefix) else {
+        return web::HttpResponse::NotFound().finish();
+    };
+    if !app_state
+        .routes
+        .files
+        .get(&prefix)
+        .is_some_and(|files| files.contains_key(&post_name))
     {
-        let post_links = app_state.post_links.read().unwrap();
-        if !post_links.contains_key(&post_name) {
-            return web::HttpResponse::NotFound().body("Post not found");
-        }
+        return web::HttpResponse::NotFound().body("Post not found");
     }
-
-    if form.website.as_deref().is_some_and(|v| !v.trim().is_empty()) {
-        info!("Dropped comment on {} because the honeypot field was filled", post_name);
-        return comment_redirect(&post_name, "comment_posted=1");
+    if form
+        .website
+        .as_deref()
+        .is_some_and(|v| !v.trim().is_empty())
+    {
+        return comment_redirect(&prefix, &post_name, "comment_posted=1");
     }
-
-    let captcha_ok = services.captcha.verify(
+    if !services.captcha.verify(
         form.captcha_id.as_deref().unwrap_or(""),
         form.captcha_answer.as_deref().unwrap_or(""),
-    );
-    if !captcha_ok {
-        warn!("Captcha failed for comment on {}", post_name);
-        return comment_redirect(&post_name, "comment_error=captcha");
+    ) {
+        return comment_redirect(&prefix, &post_name, "comment_error=captcha");
     }
-
     let comment = match Comment::new(
         form.author.clone().unwrap_or_default(),
         form.body.clone().unwrap_or_default(),
     ) {
         Ok(comment) => comment,
-        Err(e) => return comment_redirect(&post_name, &format!("comment_error={}", e.code())),
-    };
-
-    match services.store.append(&post_name, &comment) {
-        Ok(()) => {
-            info!("Comment {} added to {}", comment.id, post_name);
-            comment_redirect(&post_name, "comment_posted=1")
-        }
         Err(e) => {
-            warn!("Error saving comment on {}: {:?}", post_name, e);
-            comment_redirect(&post_name, &format!("comment_error={}", e.code()))
+            return comment_redirect(&prefix, &post_name, &format!("comment_error={}", e.code()))
+        }
+    };
+    match store.append(&post_name, &comment) {
+        Ok(()) => comment_redirect(&prefix, &post_name, "comment_posted=1"),
+        Err(e) => {
+            warn!("Error saving comment on {}/{}: {:?}", prefix, post_name, e);
+            comment_redirect(&prefix, &post_name, &format!("comment_error={}", e.code()))
         }
     }
-}
-
-#[web::get("/list")]
-async fn list(req: HttpRequest, app_state: web::types::State<Arc<AppState>>) -> web::HttpResponse {
-    let origin: String = get_origin(&req);
-    app_state.metric_sender.list(None, origin).await;
-
-    let config = app_state.config.read().unwrap();
-    let preview_opt = get_preview_option(&config);
-    let post_links = app_state.post_links.read().unwrap();
-
-    let rendered_posts =
-        match retrieve_post_list(&app_state.summary_cache, &post_links, None, &preview_opt) {
-            Ok(posts) => posts,
-            Err(e) => {
-                return web::HttpResponse::InternalServerError()
-                    .body(format!("Error listing posts: {}", e))
-            }
-        };
-
-    let cur_page: u32 = get_cur_page(req);
-    let post_list = match render_list(&config, rendered_posts, cur_page) {
-        Ok(posts) => posts,
-        Err(e) => {
-            return web::HttpResponse::InternalServerError()
-                .body(format!("Error rendering post list: {}", e))
-        }
-    };
-
-    web::HttpResponse::Ok()
-        .content_type("text/html; charset=utf-8")
-        .body(post_list)
-}
-
-#[web::get("/list/{tag}/")]
-async fn list_with_tags(
-    req: HttpRequest,
-    path: web::types::Path<String>,
-    app_state: web::types::State<Arc<AppState>>,
-) -> web::HttpResponse {
-    let tag = path.into_inner();
-
-    let origin: String = get_origin(&req);
-    app_state
-        .metric_sender
-        .list(Some(tag.clone()), origin)
-        .await;
-
-    let config = app_state.config.read().unwrap();
-    let preview_opt = get_preview_option(&config);
-    let post_links = app_state.post_links.read().unwrap();
-
-    let rendered_posts = match retrieve_post_list(
-        &app_state.summary_cache,
-        &post_links,
-        Some(tag),
-        &preview_opt,
-    ) {
-        Ok(posts) => posts,
-        Err(e) => {
-            return web::HttpResponse::InternalServerError()
-                .body(format!("Error listing posts: {}", e))
-        }
-    };
-
-    let cur_page: u32 = get_cur_page(req);
-    let post_list = match render_list(&config, rendered_posts, cur_page) {
-        Ok(posts) => posts,
-        Err(e) => {
-            return web::HttpResponse::InternalServerError()
-                .body(format!("Error rendering post list: {}", e))
-        }
-    };
-
-    web::HttpResponse::Ok()
-        .content_type("text/html; charset=utf-8")
-        .body(post_list)
 }
 
 #[web::get("/rss")]
 async fn rss(req: HttpRequest, app_state: web::types::State<Arc<AppState>>) -> web::HttpResponse {
-    let origin: String = get_origin(&req);
-    app_state.metric_sender.rss(origin).await;
-
+    app_state.metric_sender.rss(get_origin(&req)).await;
     let config = app_state.config.read().unwrap();
-    let post_links = &app_state.post_links.read().unwrap();
-    if let Some(ref rss_feed) = config.rss_feed {
-        let preview_opt = get_preview_option(&config);
-        let rendered_posts =
-            match retrieve_post_list(&app_state.summary_cache, post_links, None, &preview_opt) {
-                Ok(posts) => posts,
-                Err(e) => {
-                    return web::HttpResponse::InternalServerError()
-                        .body(format!("Error listing posts: {}", e))
-                }
-            };
-
-        let post_list = match render_rss(rss_feed, rendered_posts) {
-            Ok(posts) => posts,
-            Err(e) => {
-                return web::HttpResponse::InternalServerError()
-                    .body(format!("Error rendering post list: {}", e))
-            }
-        };
-
-        web::HttpResponse::Ok()
+    let Some(feed) = &config.rss_feed else {
+        return web::HttpResponse::BadRequest().body("RSS feed is not available.");
+    };
+    let result = (|| -> Result<Vec<u8>> {
+        let mut contents = app_state.routes.ordered(&config, &feed.source, true)?;
+        contents.truncate(feed.page_size as usize);
+        Ok(RssChannel {
+            ch_title: &feed.title,
+            ch_link: &feed.site_url,
+            ch_desc: &feed.description,
+        }
+        .render_route(&contents, &feed.source)?)
+    })();
+    match result {
+        Ok(xml) => web::HttpResponse::Ok()
             .content_type("application/rss+xml; charset=UTF-8")
-            .body(post_list)
-    } else {
-        web::HttpResponse::BadRequest().body("RSS feed is not available.")
+            .body(xml),
+        Err(e) => {
+            warn!("Error rendering RSS: {}", e);
+            web::HttpResponse::InternalServerError().finish()
+        }
     }
-}
-
-#[web::get("/view/{post}/{file}")]
-async fn post_files(
-    path: web::types::Path<(String, String)>,
-    app_state: web::types::State<Arc<AppState>>,
-) -> Result<NamedFile, web::Error> {
-    let (post, file) = path.into_inner();
-    let posts_dir = &app_state.config.read().unwrap().paths.posts_dir;
-    get_file(posts_dir, post, file)
-}
-
-#[web::get("/page/{post}/{file}")]
-async fn page_files(
-    path: web::types::Path<(String, String)>,
-    app_state: web::types::State<Arc<AppState>>,
-) -> Result<NamedFile, web::Error> {
-    let (post, file) = path.into_inner();
-    let pages_dir = &app_state.config.read().unwrap().paths.pages_dir;
-    get_file(pages_dir, post, file)
 }
 
 #[web::get("/public/{file_name}")]
@@ -356,14 +308,13 @@ async fn public_files(
     path: web::types::Path<String>,
     app_state: web::types::State<Arc<AppState>>,
 ) -> Result<NamedFile, web::Error> {
-    if path.contains("../") {
-        return Err(web::error::ErrorUnauthorized("Access forbidden").into());
+    if !safe_segment(&path) {
+        return Err(web::error::ErrorNotFound("File not found").into());
     }
-
     let config = app_state.config.read().unwrap();
-    let file_path = config.paths.public_dir.join(path.into_inner());
-
-    Ok(NamedFile::open(file_path)?)
+    Ok(NamedFile::open(
+        config.paths.public_dir.join(path.into_inner()),
+    )?)
 }
 
 #[web::get("/")]
@@ -379,7 +330,17 @@ async fn index(req: HttpRequest, app_state: web::types::State<Arc<AppState>>) ->
             // Let's load from the file and update the cache
             info!("Rendering page {} from file", page_name);
             let config = app_state.config.read().unwrap();
-            let num_of_posts = app_state.post_links.read().unwrap().len();
+            let num_of_posts = app_state
+                .routes
+                .files
+                .get(
+                    config
+                        .rss_feed
+                        .as_ref()
+                        .map(|feed| feed.source.as_str())
+                        .unwrap_or("view"),
+                )
+                .map_or(0, |files| files.len());
 
             let TomlDate(blog_start_date) = config.personal.blog_start_date;
             let activity_start_year = config.personal.activity_start_year;
@@ -414,6 +375,7 @@ async fn index(req: HttpRequest, app_state: web::types::State<Arc<AppState>>) ->
 
 fn build_comments_context(
     app_state: &AppState,
+    prefix: &str,
     post_name: &str,
     req: &HttpRequest,
 ) -> CommentsContext {
@@ -421,7 +383,7 @@ fn build_comments_context(
         return CommentsContext::disabled();
     };
 
-    let comments = match services.store.load(post_name) {
+    let comments = match services.stores[prefix].load(post_name) {
         Ok(comments) => comments,
         Err(e) => {
             warn!("Error loading comments for {}: {}", post_name, e);
@@ -446,9 +408,12 @@ fn comment_feedback(req: &HttpRequest) -> (String, bool) {
     (error, posted)
 }
 
-fn comment_redirect(post_name: &str, query: &str) -> web::HttpResponse {
+fn comment_redirect(prefix: &str, post_name: &str, query: &str) -> web::HttpResponse {
     web::HttpResponse::SeeOther()
-        .header("Location", format!("/view/{}/?{}#comments", post_name, query))
+        .header(
+            "Location",
+            format!("{}?{}#comments", content_url(prefix, post_name), query),
+        )
         .finish()
 }
 
@@ -462,114 +427,411 @@ fn get_origin(req: &web::HttpRequest) -> String {
     req.peer_addr().map_or("".to_string(), |x| format!("{}", x))
 }
 
+fn make_state(
+    config: Config,
+    routes: Routes,
+    metric_sender: MetricSender,
+) -> Result<Arc<AppState>> {
+    let comments = if let Some(settings) = &config.comments {
+        let mut stores = HashMap::new();
+        for (name, route) in &routes.definitions {
+            if matches!(route, RouteConfig::Post(_)) {
+                let directory = if name == "view" {
+                    settings.dir.clone()
+                } else {
+                    settings.dir.join("routes").join(name)
+                };
+                stores.insert(name.clone(), CommentStore::new(directory)?);
+            }
+        }
+        Some(CommentServices {
+            stores,
+            captcha: CaptchaStore::new(),
+        })
+    } else {
+        None
+    };
+    let post_cache = if config.defaults.rendering_cache_enabled {
+        ContentCache::new()
+    } else {
+        ContentCache::non_caching()
+    };
+    Ok(Arc::new(AppState {
+        routes,
+        config: RwLock::new(config),
+        post_cache: RwLock::new(post_cache),
+        metric_sender,
+        comments,
+    }))
+}
+
 pub async fn server_run(config: Config) -> Result<()> {
-    let index_base_name = match config.defaults.index_base_name {
-        None => PostListType::AnyContentFile,
-        Some(ref base_name) => PostListType::IndexBaseName(base_name.clone()),
-    };
-
-    // List post files and generate list of link -> post file
-    let post_link_vec: Vec<PostLink> = list_post_files(&config.paths.posts_dir, &index_base_name)?;
-    for file in post_link_vec.iter() {
-        info!("Post added to listing: {:?}", file.post_name);
-    }
-
-    let page_link_vec: Vec<PostLink> = list_post_files(&config.paths.pages_dir, &index_base_name)?;
-    for file in page_link_vec.iter() {
-        info!("Page found: {:?}", file.post_name);
-    }
-
-    let post_links: HashMap<_, _> = post_link_vec
-        .into_iter()
-        .map(|link| (link.post_name, link.post_path))
-        .collect();
-
-    let page_links: HashMap<_, _> = page_link_vec
-        .into_iter()
-        .map(|link| (link.post_name, link.post_path))
-        .collect();
-
-    let (post_cache, summary_cache, post_content_cache) = match config.defaults.rendering_cache_enabled {
-        true => (ContentCache::new(), ContentCache::new(), ContentCache::new()),
-        false => (
-            ContentCache::non_caching(),
-            ContentCache::non_caching(),
-            ContentCache::non_caching(),
-        ),
-    };
-
+    let routes = Routes::new(&config)?;
     let (metric_sender, _metrics) = if let Some(ref metrics_cfg) = config.metrics {
-        // When configuration is loaded, we already set a location if the metrics section is defined
         let location = metrics_cfg.location.as_ref().unwrap();
-        let time_slot = Duration::seconds(metrics_cfg.time_slot_secs.unwrap());
-        let metrics = MetricWriter::new(location, time_slot)?;
-        let metric_handler = MetricHandler::new(metrics);
-        let sender = metric_handler.new_sender();
-        (sender, Some(metric_handler))
+        let metrics = MetricHandler::new(MetricWriter::new(
+            location,
+            Duration::seconds(metrics_cfg.time_slot_secs.unwrap()),
+        )?);
+        (metrics.new_sender(), Some(metrics))
     } else {
         (MetricHandler::no_op(), None)
     };
-
-    let comments = if let Some(ref comments_cfg) = config.comments {
-        match CommentStore::new(comments_cfg.dir.clone()) {
-            Ok(store) => {
-                info!(
-                    "Comments enabled. Files will be written in {}",
-                    comments_cfg.dir.display()
-                );
-                Some(CommentServices {
-                    store,
-                    captcha: CaptchaStore::new(),
-                })
-            }
-            Err(e) => {
-                warn!("Could not initialize comments store: {}", e);
-                None
-            }
-        }
-    } else {
-        info!("Comments disabled.");
-        None
-    };
-
-    let post_links = RwLock::new(post_links);
-    let page_links = RwLock::new(page_links);
-    let bind_addr = config.server.address.clone();
-    let bind_port = config.server.port;
-    let config = RwLock::new(config);
-    let post_cache = RwLock::new(post_cache);
-    let post_content_cache = RwLock::new(post_content_cache);
-    let summary_cache = RwLock::new(summary_cache);
-
-    let app_state = Arc::new(AppState {
-        post_links,
-        page_links,
-        config,
-        post_cache,
-        post_content_cache,
-        summary_cache,
-        metric_sender,
-        comments,
-    });
-
+    let address = config.server.address.clone();
+    let port = config.server.port;
+    let state = make_state(config, routes, metric_sender)?;
     web::HttpServer::new(move || {
         web::App::new()
-            .state(app_state.clone())
+            .state(state.clone())
             .service(index)
             .service(public_files)
-            .service(list)
-            .service(list_with_tags)
             .service(rss)
-            .service(view)
             .service(post_comment)
-            .service(view_wo_slash)
-            .service(post_files)
-            .service(page)
-            .service(page_wo_slash)
-            .service(page_files)
+            .service(configured_route)
     })
-    .bind((bind_addr, bind_port))?
+    .bind((address, port))?
     .run()
     .await
     .map_err(anyhow::Error::from)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::routes::tests::Fixture;
+    use ntex::http::StatusCode;
+    use ntex::web::test;
+
+    #[ntex::test]
+    async fn configurable_routes_render_and_keep_legacy_urls() {
+        let f = Fixture::new();
+        let config = f.config();
+        let routes = Routes::new(&config).unwrap();
+        let state = make_state(config, routes, MetricHandler::no_op()).unwrap();
+        let app = test::init_service(
+            web::App::new()
+                .state(state)
+                .service(index)
+                .service(public_files)
+                .service(rss)
+                .service(post_comment)
+                .service(configured_route),
+        )
+        .await;
+        for (url, expected) in [
+            ("/page/shared/", "page|Legacy page"),
+            ("/view/shared/", "view|Legacy post"),
+            ("/doc/shared/", "doc|Alpha"),
+            ("/article/shared/", "article|Article"),
+            ("/tutorials/", "Alpha=/doc/shared/"),
+            ("/blog/", "Newest=/article/newer/"),
+            ("/archive/", "Newest=/article/newer/"),
+            ("/list", "Legacy post=/view/shared/"),
+            ("/list/", "Legacy post=/view/shared/"),
+            ("/", "count=1"),
+            ("/blog/rust/", "rust=/blog/rust/"),
+            ("/tutorials/?page=2", "Hidden=/doc/hidden/"),
+        ] {
+            let response =
+                test::call_service(&app, test::TestRequest::with_uri(url).to_request()).await;
+            assert_eq!(response.status(), StatusCode::OK, "{url}");
+            let body = test::read_body(response).await;
+            assert!(
+                std::str::from_utf8(&body).unwrap().contains(expected),
+                "{url}: {:?}",
+                body
+            );
+        }
+        for url in ["/doc/shared?q=1", "/blog?q=1", "/blog/rust?q=1"] {
+            let response =
+                test::call_service(&app, test::TestRequest::with_uri(url).to_request()).await;
+            assert_eq!(response.status(), StatusCode::TEMPORARY_REDIRECT);
+            assert_eq!(
+                response
+                    .headers()
+                    .get("location")
+                    .unwrap()
+                    .to_str()
+                    .unwrap(),
+                url.replace("?", "/?")
+            );
+        }
+        for url in [
+            "/unknown/",
+            "/doc/missing/",
+            "/doc/",
+            "/blog/rust/file",
+            "/public/missing",
+            "/rss/missing/",
+        ] {
+            let response =
+                test::call_service(&app, test::TestRequest::with_uri(url).to_request()).await;
+            assert_eq!(response.status(), StatusCode::NOT_FOUND, "{url}");
+        }
+    }
+
+    #[ntex::test]
+    async fn tag_links_round_trip_through_listings() {
+        let f = Fixture::new();
+        let file = f.root.join("articles/shared.md");
+        let source = std::fs::read_to_string(&file).unwrap();
+        std::fs::write(&file, source.replace("rust web", "ci/cd C++ %2F ..")).unwrap();
+        let mut config = f.config();
+        config.defaults.page_size = 1;
+        let routes = Routes::new(&config).unwrap();
+        let state = make_state(config, routes, MetricHandler::no_op()).unwrap();
+        let app = test::init_service(web::App::new().state(state).service(configured_route)).await;
+        for (url, expected) in [
+            ("/blog/", "ci/cd=/blog/ci%2Fcd/"),
+            ("/blog/ci%2Fcd/", "Article=/article/shared/"),
+            ("/blog/C%2B%2B/", "Article=/article/shared/"),
+            ("/blog/%252F/", "Article=/article/shared/"),
+            ("/blog/?tag=..", "Article=/article/shared/"),
+            ("/article/shared/", "article|Article"),
+        ] {
+            let response =
+                test::call_service(&app, test::TestRequest::with_uri(url).to_request()).await;
+            assert_eq!(response.status(), StatusCode::OK, "{url}");
+            let body = test::read_body(response).await;
+            assert!(
+                std::str::from_utf8(&body).unwrap().contains(expected),
+                "{url}"
+            );
+        }
+        let response = test::call_service(
+            &app,
+            test::TestRequest::with_uri("/article/ci%2Fcd/").to_request(),
+        )
+        .await;
+        assert_eq!(response.status(), StatusCode::NOT_FOUND);
+    }
+
+    #[ntex::test]
+    async fn missing_navigation_entry_does_not_break_other_pages() {
+        let f = Fixture::new();
+        let mut config = f.config();
+        config.defaults.rendering_cache_enabled = false;
+        let routes = Routes::new(&config).unwrap();
+        let state = make_state(config, routes, MetricHandler::no_op()).unwrap();
+        let app = test::init_service(web::App::new().state(state).service(configured_route)).await;
+
+        std::fs::remove_file(f.root.join("docs/second.md")).unwrap();
+        let response = test::call_service(
+            &app,
+            test::TestRequest::with_uri("/doc/shared/").to_request(),
+        )
+        .await;
+        assert_eq!(response.status(), StatusCode::OK);
+        let body = test::read_body(response).await;
+        let body = std::str::from_utf8(&body).unwrap();
+        assert!(body.contains("NAV:Alpha=/doc/shared/"));
+        assert!(!body.contains("Beta"));
+        assert!(body.contains("NEXT:Hidden"));
+    }
+
+    #[ntex::test]
+    async fn curated_lists_empty_results_html_and_attachments() {
+        let f = Fixture::new();
+        let mut config = f.config();
+        f.write("docs/images/index.md", "Images", "![pic](pic.png)", 1);
+        std::fs::write(f.root.join("docs/images/pic.png"), "image data").unwrap();
+        std::fs::write(f.root.join("docs/html.htm"), "<!--\n[ID]: # (html)\n[DATE]: # (2024-01-01 12:00:00.000)\n[AUTHOR]: # (Ada)\n-->\n<h1>HTML page</h1>\n<p>HTML body</p>").unwrap();
+        if let RouteConfig::Page(content) = config.routes.get_mut("doc").unwrap() {
+            content.navigation = Some(vec!["images".into(), "shared".into()]);
+        }
+        let routes = Routes::new(&config).unwrap();
+        let state = make_state(config, routes, MetricHandler::no_op()).unwrap();
+        let app = test::init_service(web::App::new().state(state).service(configured_route)).await;
+        for (url, text) in [
+            ("/tutorials/", "Images=/doc/images/"),
+            ("/doc/html/", "HTML body"),
+            ("/doc/hidden/", "Hidden"),
+            ("/doc/images/pic.png", "image data"),
+        ] {
+            let response =
+                test::call_service(&app, test::TestRequest::with_uri(url).to_request()).await;
+            assert_eq!(response.status(), StatusCode::OK, "{url}");
+            let body = test::read_body(response).await;
+            assert!(std::str::from_utf8(&body).unwrap().contains(text));
+            if url == "/tutorials/" {
+                let body = std::str::from_utf8(&body).unwrap();
+                assert!(!body.contains("Hidden="));
+                assert!(body.contains("/doc/images/pic.png"));
+            }
+        }
+        let response = test::call_service(
+            &app,
+            test::TestRequest::with_uri("/tutorials/no-such-tag/").to_request(),
+        )
+        .await;
+        assert_eq!(response.status(), StatusCode::OK);
+        let body = test::read_body(response).await;
+        assert!(!std::str::from_utf8(&body).unwrap().contains("Images="));
+        for url in [
+            "/doc/images/%2E%2E",
+            "/doc/images/%2Fetc%2Fpasswd",
+            "/doc/images/missing.png",
+        ] {
+            let response =
+                test::call_service(&app, test::TestRequest::with_uri(url).to_request()).await;
+            assert_eq!(response.status(), StatusCode::NOT_FOUND, "{url}");
+        }
+    }
+
+    #[ntex::test]
+    async fn comments_and_rss_follow_the_post_source() {
+        let f = Fixture::new();
+        let mut config = f.config();
+        config.rss_feed.as_mut().unwrap().source = "article".into();
+        let routes = Routes::new(&config).unwrap();
+        let state = make_state(config, routes, MetricHandler::no_op()).unwrap();
+        let services = state.comments.as_ref().unwrap();
+        services.stores["view"]
+            .append(
+                "shared",
+                &Comment::new("Legacy".into(), "Legacy comment".into()).unwrap(),
+            )
+            .unwrap();
+        let challenge = services.captcha.generate();
+        let tokens: Vec<_> = challenge
+            .question
+            .trim_end_matches('?')
+            .split_whitespace()
+            .collect();
+        let a: i32 = tokens[2].parse().unwrap();
+        let b: i32 = tokens[4].parse().unwrap();
+        let answer = if tokens[3] == "+" { a + b } else { a - b }.to_string();
+        let app = test::init_service(
+            web::App::new()
+                .state(state.clone())
+                .service(index)
+                .service(rss)
+                .service(post_comment)
+                .service(configured_route),
+        )
+        .await;
+        let response = test::call_service(
+            &app,
+            test::TestRequest::post()
+                .uri("/article/shared/comment")
+                .set_form(&[
+                    ("author", "Custom"),
+                    ("body", "Custom comment"),
+                    ("captcha_id", &challenge.id),
+                    ("captcha_answer", &answer),
+                ])
+                .to_request(),
+        )
+        .await;
+        assert_eq!(response.status(), StatusCode::SEE_OTHER);
+        assert_eq!(
+            response.headers().get("location").unwrap(),
+            "/article/shared/?comment_posted=1#comments"
+        );
+        assert_eq!(
+            services.stores["view"].load("shared").unwrap()[0].author,
+            "Legacy"
+        );
+        assert_eq!(
+            services.stores["article"].load("shared").unwrap()[0].author,
+            "Custom"
+        );
+        assert!(f.root.join("comments/shared.jsonl").is_file());
+        assert!(f
+            .root
+            .join("comments/routes/article/shared.jsonl")
+            .is_file());
+        for (url, expected, absent) in [
+            (
+                "/article/shared/",
+                "Custom=Custom comment",
+                "Legacy comment",
+            ),
+            ("/view/shared/", "Legacy=Legacy comment", "Custom comment"),
+            ("/doc/shared/", "COMMENTS=false", "Custom comment"),
+            ("/rss", "/article/newer/", "/view/"),
+            ("/", "count=2", "count=1"),
+        ] {
+            let response =
+                test::call_service(&app, test::TestRequest::with_uri(url).to_request()).await;
+            assert_eq!(response.status(), StatusCode::OK, "{url}");
+            let body = test::read_body(response).await;
+            let text = std::str::from_utf8(&body).unwrap();
+            assert!(text.contains(expected), "{url}: {text}");
+            assert!(!text.contains(absent), "{url}: {text}");
+        }
+        let response = test::call_service(
+            &app,
+            test::TestRequest::post()
+                .uri("/doc/shared/comment")
+                .set_form(&[("author", "Ada"), ("body", "Denied")])
+                .to_request(),
+        )
+        .await;
+        assert_eq!(response.status(), StatusCode::NOT_FOUND);
+    }
+    #[ntex::test]
+    async fn page_cache_setting_controls_edits_and_render_errors() {
+        for enabled in [true, false] {
+            let f = Fixture::new();
+            let mut config = f.config();
+            config.defaults.rendering_cache_enabled = enabled;
+            let routes = Routes::new(&config).unwrap();
+            let state = make_state(config, routes, MetricHandler::no_op()).unwrap();
+            let app =
+                test::init_service(web::App::new().state(state).service(configured_route)).await;
+            let response = test::call_service(
+                &app,
+                test::TestRequest::with_uri("/doc/shared/").to_request(),
+            )
+            .await;
+            assert_eq!(response.status(), StatusCode::OK);
+            f.write("docs/shared.md", "Updated", "edited body", 1);
+            let response = test::call_service(
+                &app,
+                test::TestRequest::with_uri("/doc/shared/").to_request(),
+            )
+            .await;
+            let body = test::read_body(response).await;
+            let body = std::str::from_utf8(&body).unwrap();
+            assert!(body.contains(if enabled { "Alpha" } else { "Updated" }));
+            std::fs::write(f.root.join("templates/content.tpl"), "{{/unopened}}").unwrap();
+            let response = test::call_service(
+                &app,
+                test::TestRequest::with_uri("/doc/shared/").to_request(),
+            )
+            .await;
+            assert_eq!(
+                response.status(),
+                if enabled {
+                    StatusCode::OK
+                } else {
+                    StatusCode::INTERNAL_SERVER_ERROR
+                }
+            );
+        }
+    }
+
+    #[ntex::test]
+    async fn empty_sources_render_lists_and_rss() {
+        let f = Fixture::new();
+        let mut config = f.config();
+        config.rss_feed.as_mut().unwrap().source = "article".into();
+        std::fs::remove_file(f.root.join("articles/shared.md")).unwrap();
+        std::fs::remove_file(f.root.join("articles/newer.md")).unwrap();
+        let routes = Routes::new(&config).unwrap();
+        let state = make_state(config, routes, MetricHandler::no_op()).unwrap();
+        let app = test::init_service(
+            web::App::new()
+                .state(state)
+                .service(rss)
+                .service(configured_route),
+        )
+        .await;
+        for url in ["/blog/", "/blog/?page=999", "/rss"] {
+            let response =
+                test::call_service(&app, test::TestRequest::with_uri(url).to_request()).await;
+            assert_eq!(response.status(), StatusCode::OK, "{url}");
+        }
+    }
 }

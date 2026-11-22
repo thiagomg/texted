@@ -9,8 +9,10 @@ use crate::text_utils::format_date_time;
 
 #[derive(ramhorns::Content)]
 struct ListPage<'a> {
+    #[ramhorns(flatten)]
+    route: &'a crate::routes::RouteContext,
     post_list: Vec<PostItem>,
-    tags: Vec<ViewTag<'a>>,
+    tags: Vec<ViewTag>,
     page_list: Vec<ViewPagination>,
     show_pagination: bool,
 }
@@ -25,14 +27,16 @@ struct PostItem {
 }
 
 #[derive(ramhorns::Content)]
-struct ViewTag<'a> {
-    tag: &'a str,
+struct ViewTag {
+    tag: String,
+    url: String,
 }
 
 #[derive(ramhorns::Content)]
 struct ViewPagination {
     current: bool,
     number: u32,
+    url: String,
 }
 
 pub struct ListRenderer<'a> {
@@ -41,11 +45,14 @@ pub struct ListRenderer<'a> {
 }
 
 impl ListRenderer<'_> {
-    pub fn new(list_tpl_src: &str, page_size: u32) -> io::Result<ListRenderer> {
+    pub fn new(list_tpl_src: &str, page_size: u32) -> io::Result<ListRenderer<'_>> {
         let template = match Template::new(list_tpl_src) {
             Ok(x) => x,
             Err(e) => {
-                return Err(io::Error::new(ErrorKind::InvalidInput, format!("Error parsing list template: {}", e)));
+                return Err(io::Error::new(
+                    ErrorKind::InvalidInput,
+                    format!("Error parsing list template: {}", e),
+                ));
             }
         };
 
@@ -55,14 +62,22 @@ impl ListRenderer<'_> {
         })
     }
 
-    pub fn render(&self, contents: &[Arc<Content>], cur_page: u32, tags: Vec<String>) -> String {
+    pub fn render_route(
+        &self,
+        contents: &[Arc<Content>],
+        cur_page: u32,
+        tags: Vec<String>,
+        source: &str,
+        pagination_query: &str,
+        route: &crate::routes::RouteContext,
+    ) -> String {
         let mut post_list = vec![];
         for content in contents {
             let (date, time) = format_date_time(&content.header.date);
             let post_item = PostItem {
                 date,
                 time,
-                link: format!("/view/{}", &content.link),
+                link: crate::routes::content_url(source, &content.link),
                 title: content.title.clone(),
                 summary: content.rendered.clone(),
             };
@@ -75,15 +90,23 @@ impl ListRenderer<'_> {
             page_list.push(ViewPagination {
                 current,
                 number: i,
+                url: format!("{pagination_query}{i}"),
             })
         }
 
-        let tags: Vec<_> = tags.iter().map(|t| ViewTag { tag: t.as_str() }).collect();
+        let tags: Vec<_> = tags
+            .into_iter()
+            .map(|tag| ViewTag {
+                url: crate::routes::tag_url(&route.listing_url, &tag),
+                tag,
+            })
+            .collect();
         self.template.render(&ListPage {
+            route,
             post_list,
             tags,
             page_list,
-            show_pagination: true,
+            show_pagination: self.page_size > 1,
         })
     }
 }

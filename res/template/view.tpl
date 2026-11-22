@@ -22,7 +22,7 @@
             <p>
                 <strong>Tags:</strong>
                 {{#tags}}
-                <a href="/list/{{tag}}/">#{{tag}}</a>&nbsp;&nbsp;
+                <a href="{{url}}">#{{tag}}</a>&nbsp;&nbsp;
                 {{/tags}}
             </p>
             <p>
@@ -43,7 +43,7 @@
                 <p class="no-comments">No comments yet. Be the first to write one.</p>
                 {{/comments}}
 
-                <form class="comment-form" method="post" action="/view/{{link}}/comment">
+                <form class="comment-form" method="post" action="{{comment_action}}">
                     <h3>Leave a comment</h3>
                     {{#comment_posted}}
                     <p class="comment-success">Your comment was published.</p>

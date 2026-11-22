@@ -18,7 +18,20 @@ mod tests {
 
     #[test]
     fn test_uncompress() {
-        let out_path = PathBuf::from("/Users/thiago/src/texted/z");
-        decompress_files(&out_path).unwrap()
+        let out_path =
+            std::env::temp_dir().join(format!("texted-bootstrap-{}", uuid::Uuid::new_v4()));
+        decompress_files(&out_path).unwrap();
+        for file in [
+            "template/page.tpl",
+            "template/content.tpl",
+            "template/contentlist.tpl",
+            "docs/introduction.md",
+        ] {
+            assert!(
+                out_path.join(file).is_file(),
+                "Missing bootstrap resource: {file}"
+            );
+        }
+        std::fs::remove_dir_all(out_path).unwrap();
     }
 }

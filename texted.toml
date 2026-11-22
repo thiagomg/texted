@@ -49,3 +49,28 @@ title = "Texted example blog posts"
 site_url = "http://127.0.0.1:8001"
 description = "This is the description of this example blog"
 page_size = 10
+
+# Optional configurable routes. Existing /page, /view and /list keep working.
+# Uncomment these examples to enable /doc, /article, /tutorials and /blog.
+# [routes.doc]
+# type = "page"
+# directory = "res/docs"
+# template = "content.tpl"
+# title = "Documentation"
+# navigation = ["introduction", "installation"]
+#
+# [routes.article]
+# type = "post"
+# directory = "res/articles"
+# template = "content.tpl"
+# title = "Articles"
+#
+# [routes.tutorials]
+# type = "postlist"
+# source = "doc"
+# template = "contentlist.tpl"
+#
+# [routes.blog]
+# type = "postlist"
+# source = "article"
+# template = "postlist.tpl"

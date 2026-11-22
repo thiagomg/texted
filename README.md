@@ -169,3 +169,94 @@ The comment form includes a math captcha. You can style the comments section in 
 ### Tip
 
 If you run the texted-post binary, it will create a post skeleton with header, title and sample body to you.
+
+## Configurable content routes
+
+A route's name determines its URL prefix. Routes have one of three types:
+
+- `page` renders individual pages without comments.
+- `post` renders individual posts, with comments when `[comments]` is enabled.
+- `postlist` lists content from a named page or post route, with pagination and tag filtering.
+
+For example:
+
+```toml
+[routes.doc]
+type = "page"
+directory = "res/docs"
+template = "content.tpl"
+title = "Documentation"
+navigation = ["introduction", "installation"]
+
+[routes.article]
+type = "post"
+directory = "res/articles"
+template = "content.tpl"
+title = "Articles"
+
+[routes.tutorials]
+type = "postlist"
+source = "doc"
+template = "contentlist.tpl"
+
+[routes.blog]
+type = "postlist"
+source = "article"
+template = "postlist.tpl"
+```
+
+This publishes `/doc/introduction/`, `/article/hello/`, `/tutorials/`, and `/blog/`.
+The bundled resources include these content files and templates; uncomment the corresponding examples in `texted.toml` to try them after bootstrapping.
+
+Content directories follow the existing file and directory page conventions. `directory` uses the same path rules as `[paths]`, including `${exe_dir}`. Templates are relative to `paths.template_dir`. Content discovery is one directory deep; nested content hierarchies are not supported. A directory page's attachments are served at `/prefix/slug/filename`.
+
+A list's `source` references a `page` or `post` route, so its entries and preview images use the source prefix automatically. Multiple lists can reference the same source with different templates. Visit `/blog/?page=2` for pagination or `/blog/rust/` to filter by tag. Empty lists render normally.
+
+### Ordering and navigation
+
+Page routes default to alphabetical title order. Post routes default to newest first. Equal titles or dates are ordered by slug. Optional `navigation` on the source route specifies the exact order and membership of both navigation and listings. Unlisted content remains accessible by URL, without previous/next navigation. An empty `navigation = []` hides all entries from lists. Duplicate or missing navigation entries are configuration errors.
+
+The optional `title` defaults to the route name. Content templates receive these additional fields:
+
+| Field | Meaning |
+|---|---|
+| `route_name`, `route_title`, `route_url` | Content source prefix, title, and prefix URL |
+| `content_url` | Current page/post URL |
+| `navigation_pages` | Entries with `title`, `url`, and `current` |
+| `previous_page`, `next_page` | Optional neighbouring entries with `title` and `url` |
+| `listing_url` | A listing for this content source, or empty if none exists |
+| `comment_action` | URL for submitting a comment on the current post |
+| `tags` | Existing `tag` field plus its listing `url`, or empty URL without a listing |
+
+The source prefix URL (`route_url`) is metadata; it serves an index only if that prefix is configured as a `postlist`. Use `listing_url` for an index link. When multiple lists reference a source, content pages choose the alphabetically first listing prefix, preferring `list` for the legacy `view` source.
+
+For example, a sidebar can use:
+
+```html
+<nav>
+  {{#listing_url}}<a href="{{listing_url}}">All pages</a>{{/listing_url}}
+  {{#navigation_pages}}
+    <a href="{{url}}" {{#current}}aria-current="page"{{/current}}>{{title}}</a>
+  {{/navigation_pages}}
+</nav>
+{{#previous_page}}<a href="{{url}}">Previous: {{title}}</a>{{/previous_page}}
+{{#next_page}}<a href="{{url}}">Next: {{title}}</a>{{/next_page}}
+```
+
+List templates retain `post_list` (`title`, `link`, `summary`, `date`, `time`), `tags`, `page_list`, and `show_pagination`. Tag entries expose `tag` and `url`; pagination entries expose `number`, `current`, and `url`. Source route metadata and navigation are also available. `listing_url` refers to the current list. Use these generated URLs instead of hardcoding `/view` or `/list` in custom templates. Use `action="{{comment_action}}"` for comment forms. Existing `link` on an individual post remains its slug.
+
+### Existing blogs, comments, and RSS
+
+Without `[routes]`, Texted supplies the existing routes:
+
+- `page`: `paths.pages_dir`, `page.tpl`.
+- `view`: `paths.posts_dir`, `view.tpl`.
+- `list`: source `view`, `postlist.tpl`.
+
+Explicit definitions replace defaults with the same name. Other defaults remain active. Existing URLs and templates continue to work, including `/list` without a trailing slash. Prefixes must contain only ASCII letters, digits, hyphens, or underscores; `public` and `rss` are reserved. Referenced directories and templates must exist at startup, even for empty routes.
+
+Existing `view` comments retain their filenames. Custom post route comments live in `comments.dir/routes/prefix/slug.jsonl`, keeping identical slugs in separate blogs independent. Page routes do not accept comments.
+
+To select a different post route for RSS, add `source = "article"` inside `[rss_feed]`. It defaults to `view` and must reference a post route. The homepage post count follows this source, or `view` if RSS is disabled. The homepage itself continues to use `index.tpl`.
+
+Route definitions and content membership are loaded at startup. Restart Texted after changing configuration or adding/removing content. With `rendering_cache_enabled = false`, edits to existing content, navigation titles, and templates appear without restarting. With caching enabled, restart to refresh content and navigation. Rendered comment forms and comment feedback are never cached.
