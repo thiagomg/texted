@@ -21,6 +21,7 @@ use chrono::Duration;
 use ntex::web;
 use ntex::web::HttpRequest;
 use ntex_files::NamedFile;
+use percent_encoding::percent_decode_str;
 use serde::Deserialize;
 use spdlog::{info, warn};
 
@@ -61,20 +62,28 @@ fn html(result: std::io::Result<String>) -> web::HttpResponse {
 #[web::get("/{tail}*")]
 async fn configured_route(
     req: HttpRequest,
-    tail: web::types::Path<String>,
     app_state: web::types::State<Arc<AppState>>,
 ) -> web::HttpResponse {
-    let tail = tail.into_inner();
-    let parts: Vec<_> = tail.trim_end_matches('/').split('/').collect();
-    if parts.is_empty() || !parts.iter().all(|part| safe_segment(part)) {
+    // Split the raw path before decoding so an encoded slash stays in its segment.
+    let path = req.path().trim_start_matches('/').trim_end_matches('/');
+    let Ok(parts) = path
+        .split('/')
+        .map(|part| percent_decode_str(part).decode_utf8())
+        .collect::<Result<Vec<_>, _>>()
+    else {
         return web::HttpResponse::NotFound().finish();
-    }
+    };
+    let parts: Vec<_> = parts.iter().map(|part| part.as_ref()).collect();
     let prefix = parts[0];
     let Some(route) = app_state.routes.definitions.get(prefix) else {
         return web::HttpResponse::NotFound().finish();
     };
     let listing = matches!(route, RouteConfig::Postlist { .. });
-    if (!listing && !(2..=3).contains(&parts.len())) || (listing && parts.len() > 2) {
+    if listing {
+        if parts.len() > 2 || parts.get(1).is_some_and(|tag| tag.is_empty()) {
+            return web::HttpResponse::NotFound().finish();
+        }
+    } else if !(2..=3).contains(&parts.len()) || !parts[1..].iter().all(|part| safe_segment(part)) {
         return web::HttpResponse::NotFound().finish();
     }
     if !listing && !app_state.routes.files[prefix].contains_key(parts[1]) {
@@ -150,9 +159,16 @@ async fn configured_route(
             let mut ranked_tags: Vec<_> = frequencies.into_iter().collect();
             ranked_tags.sort_by(|a, b| b.1.cmp(&a.1).then_with(|| a.0.cmp(&b.0)));
             let tags = ranked_tags.into_iter().map(|(tag, _)| tag).collect();
-            if let Some(tag) = parts.get(1) {
+            let query = QueryString::from(req.uri().query().unwrap_or_default());
+            let query_tag = query.get("tag").map(String::as_str);
+            let path_tag = parts.get(1).copied();
+            if let Some(tag) = path_tag.or(query_tag) {
                 contents.retain(|c| c.header.tags.iter().any(|t| t == tag));
             }
+            let pagination_query = match (path_tag, query_tag) {
+                (None, Some(tag)) => format!("?tag={}&page=", crate::routes::segment(tag)),
+                _ => "?page=".into(),
+            };
             let size = config.defaults.page_size as usize;
             let paginator = crate::paginator::Paginator::from(&contents, size as u32);
             let count = paginator.page_count();
@@ -163,11 +179,18 @@ async fn configured_route(
             } else {
                 paginator.get_page(current).map_err(std::io::Error::other)?
             };
-            let mut context = app_state.routes.context(&config, source, None)?;
+            let mut context = app_state.routes.context(source, None);
             context.listing_url = format!("/{prefix}/");
             let template = std::fs::read_to_string(config.paths.template_dir.join(template))?;
             let renderer = ListRenderer::new(&template, count)?;
-            Ok(renderer.render_route(page_contents, current, tags, source, prefix, &context))
+            Ok(renderer.render_route(
+                page_contents,
+                current,
+                tags,
+                source,
+                &pagination_query,
+                &context,
+            ))
         })());
     }
     let slug = parts[1];
@@ -181,7 +204,7 @@ async fn configured_route(
     }
     html((|| {
         let content = app_state.routes.load(&config, prefix, slug, false)?;
-        let context = app_state.routes.context(&config, prefix, Some(slug))?;
+        let context = app_state.routes.context(prefix, Some(slug));
         let comments = if matches!(route, RouteConfig::Post(_)) {
             build_comments_context(&app_state, prefix, slug, &req)
         } else {
@@ -545,6 +568,65 @@ mod tests {
                 test::call_service(&app, test::TestRequest::with_uri(url).to_request()).await;
             assert_eq!(response.status(), StatusCode::NOT_FOUND, "{url}");
         }
+    }
+
+    #[ntex::test]
+    async fn tag_links_round_trip_through_listings() {
+        let f = Fixture::new();
+        let file = f.root.join("articles/shared.md");
+        let source = std::fs::read_to_string(&file).unwrap();
+        std::fs::write(&file, source.replace("rust web", "ci/cd C++ %2F ..")).unwrap();
+        let mut config = f.config();
+        config.defaults.page_size = 1;
+        let routes = Routes::new(&config).unwrap();
+        let state = make_state(config, routes, MetricHandler::no_op()).unwrap();
+        let app = test::init_service(web::App::new().state(state).service(configured_route)).await;
+        for (url, expected) in [
+            ("/blog/", "ci/cd=/blog/ci%2Fcd/"),
+            ("/blog/ci%2Fcd/", "Article=/article/shared/"),
+            ("/blog/C%2B%2B/", "Article=/article/shared/"),
+            ("/blog/%252F/", "Article=/article/shared/"),
+            ("/blog/?tag=..", "Article=/article/shared/"),
+            ("/article/shared/", "article|Article"),
+        ] {
+            let response =
+                test::call_service(&app, test::TestRequest::with_uri(url).to_request()).await;
+            assert_eq!(response.status(), StatusCode::OK, "{url}");
+            let body = test::read_body(response).await;
+            assert!(
+                std::str::from_utf8(&body).unwrap().contains(expected),
+                "{url}"
+            );
+        }
+        let response = test::call_service(
+            &app,
+            test::TestRequest::with_uri("/article/ci%2Fcd/").to_request(),
+        )
+        .await;
+        assert_eq!(response.status(), StatusCode::NOT_FOUND);
+    }
+
+    #[ntex::test]
+    async fn missing_navigation_entry_does_not_break_other_pages() {
+        let f = Fixture::new();
+        let mut config = f.config();
+        config.defaults.rendering_cache_enabled = false;
+        let routes = Routes::new(&config).unwrap();
+        let state = make_state(config, routes, MetricHandler::no_op()).unwrap();
+        let app = test::init_service(web::App::new().state(state).service(configured_route)).await;
+
+        std::fs::remove_file(f.root.join("docs/second.md")).unwrap();
+        let response = test::call_service(
+            &app,
+            test::TestRequest::with_uri("/doc/shared/").to_request(),
+        )
+        .await;
+        assert_eq!(response.status(), StatusCode::OK);
+        let body = test::read_body(response).await;
+        let body = std::str::from_utf8(&body).unwrap();
+        assert!(body.contains("NAV:Alpha=/doc/shared/"));
+        assert!(!body.contains("Beta"));
+        assert!(body.contains("NEXT:Hidden"));
     }
 
     #[ntex::test]

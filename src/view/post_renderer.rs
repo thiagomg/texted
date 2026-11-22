@@ -83,7 +83,7 @@ impl PostRenderer<'_> {
                 url: if route.listing_url.is_empty() {
                     String::new()
                 } else {
-                    format!("{}{}/", route.listing_url, crate::routes::segment(t))
+                    crate::routes::tag_url(&route.listing_url, t)
                 },
             })
             .collect();

@@ -68,7 +68,7 @@ impl ListRenderer<'_> {
         cur_page: u32,
         tags: Vec<String>,
         source: &str,
-        listing: &str,
+        pagination_query: &str,
         route: &crate::routes::RouteContext,
     ) -> String {
         let mut post_list = vec![];
@@ -90,18 +90,14 @@ impl ListRenderer<'_> {
             page_list.push(ViewPagination {
                 current,
                 number: i,
-                url: format!("?page={i}"),
+                url: format!("{pagination_query}{i}"),
             })
         }
 
         let tags: Vec<_> = tags
             .into_iter()
             .map(|tag| ViewTag {
-                url: format!(
-                    "/{}/{}/",
-                    crate::routes::segment(listing),
-                    crate::routes::segment(&tag)
-                ),
+                url: crate::routes::tag_url(&route.listing_url, &tag),
                 tag,
             })
             .collect();

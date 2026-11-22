@@ -6,13 +6,16 @@ use std::path::{Component, Path, PathBuf};
 use std::sync::{Arc, RwLock};
 
 use anyhow::{bail, Context, Result};
+use chrono::NaiveDateTime;
 use ramhorns::Template;
+use spdlog::warn;
 
 use crate::config::{Config, ContentRouteConfig, RouteConfig};
 use crate::content::content_file::ContentFile;
 use crate::content::content_format::ContentFormat;
 use crate::content::content_renderer::{ContentRenderer, ImagePrefix, RenderOptions};
 use crate::content::html_renderer::HtmlRenderer;
+use crate::content::parsing_utils::{parse_texted_header, parse_title_html, parse_title_markdown};
 use crate::content::texted_renderer::TextedRenderer;
 use crate::content::Content;
 use crate::content_cache::{ContentCache, Expire};
@@ -39,11 +42,39 @@ pub struct RouteContext {
     pub listing_url: String,
 }
 
+struct NavigationMetadata {
+    title: String,
+    date: NaiveDateTime,
+}
+
+impl NavigationMetadata {
+    fn read(slug: &str, path: &Path) -> io::Result<Self> {
+        let file = ContentFile::from_file(slug.into(), path.to_path_buf())?;
+        let lines = file.raw_content.lines();
+        let (header, title) = match file.format {
+            ContentFormat::Texted => {
+                let (header, lines, first) =
+                    TextedRenderer::parse_markdown_header(&file.file_path, lines)?;
+                (header, parse_title_markdown(lines, first).0)
+            }
+            ContentFormat::Html => {
+                let (header, lines, first) = parse_texted_header(path, lines)?;
+                (header, parse_title_html(lines, first).0)
+            }
+        };
+        Ok(Self {
+            title,
+            date: header.date,
+        })
+    }
+}
+
 pub struct Routes {
     pub definitions: HashMap<String, RouteConfig>,
     pub files: HashMap<String, HashMap<String, PathBuf>>,
     content_cache: RwLock<ContentCache<Content>>,
     preview_cache: RwLock<ContentCache<Content>>,
+    navigation_cache: RwLock<ContentCache<NavigationMetadata>>,
 }
 
 impl Routes {
@@ -112,6 +143,7 @@ impl Routes {
                     if links
                         .insert(entry.post_name.clone(), entry.post_path)
                         .is_some()
+                        && config.routes.contains_key(name)
                     {
                         bail!("Route {name}: duplicate content slug {}", entry.post_name);
                     }
@@ -154,6 +186,11 @@ impl Routes {
             files,
             content_cache: RwLock::new(cache()),
             preview_cache: RwLock::new(cache()),
+            navigation_cache: RwLock::new(if config.defaults.rendering_cache_enabled {
+                ContentCache::new()
+            } else {
+                ContentCache::non_caching()
+            }),
         })
     }
 
@@ -228,20 +265,60 @@ impl Routes {
         Ok(contents)
     }
 
-    pub fn context(
+    fn navigation_metadata(
         &self,
-        config: &Config,
         prefix: &str,
-        current: Option<&str>,
-    ) -> io::Result<RouteContext> {
-        let settings = self.definitions[prefix].content().unwrap();
-        let pages: Vec<_> = self
-            .ordered(config, prefix, false)?
-            .iter()
-            .map(|content| NavigationItem {
-                title: content.title.clone(),
-                url: content_url(prefix, &content.link),
-                current: current == Some(content.link.as_str()),
+        slug: &str,
+        path: &Path,
+    ) -> io::Result<Arc<NavigationMetadata>> {
+        let key = format!("{prefix}/{slug}");
+        if let Some(metadata) = self.navigation_cache.read().unwrap().get_post(&key) {
+            return Ok(metadata);
+        }
+        let metadata = NavigationMetadata::read(slug, path)?;
+        Ok(self
+            .navigation_cache
+            .write()
+            .unwrap()
+            .add_post(&key, metadata, Expire::Never))
+    }
+
+    pub fn context(&self, prefix: &str, current: Option<&str>) -> RouteContext {
+        let route = &self.definitions[prefix];
+        let settings = route.content().unwrap();
+        let files = &self.files[prefix];
+        let slugs: Vec<_> = match &settings.navigation {
+            Some(order) => order.iter().collect(),
+            None => files.keys().collect(),
+        };
+        let mut entries: Vec<_> = slugs
+            .into_iter()
+            .filter_map(
+                |slug| match self.navigation_metadata(prefix, slug, &files[slug]) {
+                    Ok(metadata) => Some((slug, metadata)),
+                    Err(error) => {
+                        warn!("Skipping navigation entry {}/{}: {}", prefix, slug, error);
+                        None
+                    }
+                },
+            )
+            .collect();
+        if settings.navigation.is_none() {
+            entries.sort_by(|(a_slug, a), (b_slug, b)| {
+                let primary = if matches!(route, RouteConfig::Post(_)) {
+                    b.date.cmp(&a.date)
+                } else {
+                    a.title.cmp(&b.title)
+                };
+                primary.then_with(|| a_slug.cmp(b_slug))
+            });
+        }
+        let pages: Vec<_> = entries
+            .into_iter()
+            .map(|(slug, metadata)| NavigationItem {
+                title: metadata.title.clone(),
+                url: content_url(prefix, slug),
+                current: current == Some(slug.as_str()),
             })
             .collect();
         let position = pages.iter().position(|page| page.current);
@@ -265,7 +342,7 @@ impl Routes {
             listings.retain(|name| *name != "list");
             listings.insert(0, "list");
         }
-        Ok(RouteContext {
+        RouteContext {
             route_name: prefix.into(),
             route_title: settings.title.clone().unwrap_or_else(|| prefix.into()),
             route_url: format!("/{}/", segment(prefix)),
@@ -282,7 +359,7 @@ impl Routes {
                 .first()
                 .map(|name| format!("/{}/", segment(name)))
                 .unwrap_or_default(),
-        })
+        }
     }
 
     pub fn attachment(&self, prefix: &str, slug: &str, file: &str) -> io::Result<PathBuf> {
@@ -341,6 +418,15 @@ pub fn segment(value: &str) -> String {
             }
         })
         .collect()
+}
+
+pub fn tag_url(listing_url: &str, tag: &str) -> String {
+    // Browsers normalize dot path segments, even when percent-encoded.
+    if matches!(tag, "." | "..") {
+        format!("{listing_url}?tag={}", segment(tag))
+    } else {
+        format!("{listing_url}{}/", segment(tag))
+    }
 }
 
 pub fn content_url(prefix: &str, slug: &str) -> String {
@@ -502,14 +588,14 @@ template = "postlist.tpl"
             content.navigation = Some(vec!["second".into(), "shared".into()]);
         }
         let routes = Routes::new(&config).unwrap();
-        let first = routes.context(&config, "doc", Some("second")).unwrap();
+        let first = routes.context("doc", Some("second"));
         assert!(first.previous_page.is_none());
         assert_eq!(first.next_page.unwrap().url, "/doc/shared/");
-        let last = routes.context(&config, "doc", Some("shared")).unwrap();
+        let last = routes.context("doc", Some("shared"));
         assert_eq!(last.previous_page.unwrap().title, "Beta");
         assert!(last.next_page.is_none());
         assert!(last.navigation_pages[1].current);
-        let hidden = routes.context(&config, "doc", Some("hidden")).unwrap();
+        let hidden = routes.context("doc", Some("hidden"));
         assert!(hidden.previous_page.is_none() && hidden.next_page.is_none());
         assert_eq!(hidden.navigation_pages.len(), 2);
         assert!(routes.load(&config, "doc", "hidden", false).is_ok());
@@ -576,23 +662,43 @@ template = "postlist.tpl"
     }
 
     #[test]
+    fn implicit_legacy_routes_keep_flat_file_precedence() {
+        let f = Fixture::new();
+        f.write(
+            "pages/shared/index.md",
+            "Directory page",
+            "directory body",
+            1,
+        );
+        f.write(
+            "posts/shared/index.md",
+            "Directory post",
+            "directory body",
+            1,
+        );
+        let config = f.config();
+        let routes = Routes::new(&config).unwrap();
+        for (prefix, expected) in [("page", "Legacy page"), ("view", "Legacy post")] {
+            assert_eq!(
+                routes.load(&config, prefix, "shared", false).unwrap().title,
+                expected
+            );
+        }
+    }
+
+    #[test]
     fn uncached_edits_refresh_navigation_and_previews() {
         let f = Fixture::new();
         let mut config = f.config();
         config.defaults.rendering_cache_enabled = false;
         let routes = Routes::new(&config).unwrap();
         assert_eq!(
-            routes
-                .context(&config, "doc", None)
-                .unwrap()
-                .navigation_pages[0]
-                .title,
+            routes.context("doc", None).navigation_pages[0].title,
             "Alpha"
         );
         f.write("docs/shared.md", "Updated", "updated body", 1);
         assert!(routes
-            .context(&config, "doc", None)
-            .unwrap()
+            .context("doc", None)
             .navigation_pages
             .iter()
             .any(|p| p.title == "Updated"));
