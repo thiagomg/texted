@@ -84,8 +84,8 @@ cargo run --bin texted
 ### GitHub Actions builds
 
 The workflow in `.github/workflows/build-linux.yml` builds x86-64 release binaries
-for Fedora 32 and Ubuntu 26.04 in two sequential build steps within a single job
-on pushes, pull requests, and manual runs. Both steps run the test suite
+for Fedora 32 and Ubuntu 26.04 in two parallel jobs within a single workflow run
+on pushes, pull requests, and manual runs. Both jobs run the test suite
 with `Cargo.lock`, build `texted` and `texted-tool` using stable Rust, and check
 that the release binaries run and can bootstrap a site.
 
