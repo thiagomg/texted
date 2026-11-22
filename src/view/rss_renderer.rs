@@ -36,9 +36,17 @@ pub struct RssChannel<'a> {
     pub ch_desc: &'a str,
 }
 
-
 impl<'a> RssChannel<'a> {
+    #[cfg(test)]
     pub fn render(&self, contents: &[Arc<Content>]) -> quick_xml::Result<Vec<u8>> {
+        self.render_route(contents, "view")
+    }
+
+    pub fn render_route(
+        &self,
+        contents: &[Arc<Content>],
+        prefix: &str,
+    ) -> quick_xml::Result<Vec<u8>> {
         let mut writer = Writer::new(Cursor::new(Vec::new()));
 
         // <?xml version="1.0" encoding="UTF-8" ?>
@@ -71,7 +79,7 @@ impl<'a> RssChannel<'a> {
             push_text(&mut writer, "title", title)?;
 
             // <link>https://thiagocafe.com/view/20220402_what_i_learned</link>
-            let link = full_link(self.ch_link, content.link.as_str());
+            let link = full_link(self.ch_link, prefix, content.link.as_str());
             push_text(&mut writer, "link", link.as_str())?;
 
             // <guid isPermaLink="false">https://thiagocafe.com/view/20220402_what_i_learned</guid>
@@ -91,7 +99,6 @@ impl<'a> RssChannel<'a> {
             let dt = TimeZone::from_utc_datetime(Utc::now().offset(), dt);
             push_text(&mut writer, "pubDate", &dt.to_rfc2822())?;
 
-
             // </item>
             writer.write_event(Event::End(BytesEnd::new("item")))?;
         }
@@ -105,20 +112,12 @@ impl<'a> RssChannel<'a> {
     }
 }
 
-fn full_link(base_url: &str, link: &str) -> String {
-    let base_url = if base_url.ends_with('/') {
-        base_url.to_string()
-    } else {
-        format!("{}/", base_url)
-    };
-
-    let link = if link.ends_with('/') {
-        link.to_string()
-    } else {
-        format!("{}/", link)
-    };
-
-    format!("{}view/{}", base_url, link)
+fn full_link(base_url: &str, prefix: &str, link: &str) -> String {
+    format!(
+        "{}{}",
+        base_url.trim_end_matches('/'),
+        crate::routes::content_url(prefix, link)
+    )
 }
 
 fn push_text(writer: &mut Writer<Cursor<Vec<u8>>>, tag: &str, text: &str) -> quick_xml::Result<()> {
@@ -128,7 +127,11 @@ fn push_text(writer: &mut Writer<Cursor<Vec<u8>>>, tag: &str, text: &str) -> qui
     Ok(())
 }
 
-fn push_cdata(writer: &mut Writer<Cursor<Vec<u8>>>, tag: &str, text: &str) -> quick_xml::Result<()> {
+fn push_cdata(
+    writer: &mut Writer<Cursor<Vec<u8>>>,
+    tag: &str,
+    text: &str,
+) -> quick_xml::Result<()> {
     writer.write_event(Event::Start(BytesStart::new(tag)))?;
     if text.contains("]]>") {
         let new_text = text.replace("]]>", "]] >");

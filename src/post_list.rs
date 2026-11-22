@@ -28,7 +28,10 @@ impl PostList {
                 let file_name = entry.file_name();
                 if let Some(file_name) = file_name.to_str() {
                     // Check if the file has a .md extension
-                    if file_name.ends_with(".md") || file_name.ends_with(".html") || file_name.ends_with(".htm") {
+                    if file_name.ends_with(".md")
+                        || file_name.ends_with(".html")
+                        || file_name.ends_with(".htm")
+                    {
                         posts.push(entry.path());
                     }
                 }
@@ -41,14 +44,15 @@ impl PostList {
         // Per directory, we should have a file called post.md
         let dirs = Self::list_dirs(self.root_dir.as_path())?;
         // Filtering only the dirs with a post inside
-        let post_dirs = Self::filter_dirs(&self.post_file, dirs);
-        Ok(post_dirs)
+        Self::filter_dirs(&self.post_file, dirs)
     }
 
     fn list_dirs(posts_dir: &Path) -> Result<Vec<PathBuf>> {
         let mut dirs: Vec<PathBuf> = vec![];
-        let entries = fs::read_dir(posts_dir)
-            .context(format!("Could not list dirs from [{}]", posts_dir.to_str().unwrap()))?;
+        let entries = fs::read_dir(posts_dir).context(format!(
+            "Could not list dirs from [{}]",
+            posts_dir.to_str().unwrap()
+        ))?;
 
         for path in entries.flatten() {
             if let Ok(file_type) = path.file_type() {
@@ -60,19 +64,21 @@ impl PostList {
         Ok(dirs)
     }
 
-    fn filter_dirs(post_file: &PostListType, dirs: Vec<PathBuf>) -> Vec<(PathBuf, String)> {
+    fn filter_dirs(post_file: &PostListType, dirs: Vec<PathBuf>) -> Result<Vec<(PathBuf, String)>> {
         let mut post_dirs = vec![];
         for dir in dirs {
-            if let Some(file_name) = Self::contains_file(&dir, post_file).unwrap() {
+            if let Some(file_name) = Self::contains_file(&dir, post_file)? {
                 post_dirs.push((dir, file_name));
             }
         }
-        post_dirs
+        Ok(post_dirs)
     }
 
     fn contains_file(dir: &PathBuf, base_name: &PostListType) -> Result<Option<String>> {
-        let entries = fs::read_dir(dir)
-            .context(format!("Could not read directory {}", dir.to_str().unwrap()))?;
+        let entries = fs::read_dir(dir).context(format!(
+            "Could not read directory {}",
+            dir.to_str().unwrap()
+        ))?;
         for entry in entries {
             let entry = entry?;
             if entry.file_type()?.is_file() {
@@ -84,7 +90,10 @@ impl PostList {
                         }
                     }
                     PostListType::AnyContentFile => {
-                        if file_name.ends_with(".md") || file_name.ends_with(".htm") || file_name.ends_with(".html") {
+                        if file_name.ends_with(".md")
+                            || file_name.ends_with(".htm")
+                            || file_name.ends_with(".html")
+                        {
                             return Ok(Some(file_name.to_string()));
                         }
                     }
@@ -95,4 +104,3 @@ impl PostList {
         Ok(None)
     }
 }
-

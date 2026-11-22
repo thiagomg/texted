@@ -10,6 +10,7 @@ use crate::text_utils::format_date_time;
 #[derive(ramhorns::Content)]
 struct ViewTag<'a> {
     tag: &'a str,
+    url: String,
 }
 
 #[derive(ramhorns::Content)]
@@ -22,6 +23,8 @@ struct ViewComment<'a> {
 
 #[derive(ramhorns::Content)]
 struct ViewItem<'a> {
+    #[ramhorns(flatten)]
+    route: &'a crate::routes::RouteContext,
     errors: Vec<String>,
     id: &'a str,
     link: &'a str,
@@ -46,28 +49,49 @@ pub struct PostRenderer<'a> {
 }
 
 impl PostRenderer<'_> {
-    pub fn new(view_tpl_src: &str) -> io::Result<PostRenderer> {
+    pub fn new(view_tpl_src: &str) -> io::Result<PostRenderer<'_>> {
         let template = match Template::new(view_tpl_src) {
             Ok(x) => x,
             Err(e) => {
-                return Err(io::Error::new(ErrorKind::InvalidInput, format!("Error parsing post view template: {}", e)));
+                return Err(io::Error::new(
+                    ErrorKind::InvalidInput,
+                    format!("Error parsing post view template: {}", e),
+                ));
             }
         };
 
-        Ok(PostRenderer {
-            template,
-        })
+        Ok(PostRenderer { template })
     }
 
+    #[cfg(test)]
     pub fn render(&self, content: &Content, comments: &CommentsContext) -> String {
-        let tags: &Vec<ViewTag> = &content.header.tags.iter().map(|t| ViewTag { tag: t.as_str() }).collect();
-        let (date, time) = format_date_time(&content.header.date);
-        let comment_views: Vec<ViewComment> = comments
-            .comments
+        self.render_route(content, comments, &crate::routes::RouteContext::default())
+    }
+
+    pub fn render_route(
+        &self,
+        content: &Content,
+        comments: &CommentsContext,
+        route: &crate::routes::RouteContext,
+    ) -> String {
+        let tags: &Vec<ViewTag> = &content
+            .header
+            .tags
             .iter()
-            .map(to_view_comment)
+            .map(|t| ViewTag {
+                tag: t.as_str(),
+                url: if route.listing_url.is_empty() {
+                    String::new()
+                } else {
+                    format!("{}{}/", route.listing_url, crate::routes::segment(t))
+                },
+            })
             .collect();
+        let (date, time) = format_date_time(&content.header.date);
+        let comment_views: Vec<ViewComment> =
+            comments.comments.iter().map(to_view_comment).collect();
         let rendered_page = self.template.render(&ViewItem {
+            route,
             errors: vec![],
             id: content.header.id.0.as_str(),
             link: content.link.as_str(),
@@ -136,13 +160,16 @@ POST_CONTENT=[{{{post_content}}}]
             rendered: "<post-content>".to_string(),
         };
         let res = post_renderer.render(&content, &crate::comments::CommentsContext::disabled());
-        assert_eq!(res, r##"
+        assert_eq!(
+            res,
+            r##"
 TITLE=[<post-title>]
 AUTHOR=[&lt;Thiago&gt;]
 DATE=[2024-01-02]
 TIME=[03:04:05]
 TAGS=[(&lt;rust&gt;)(programming)]
-POST_CONTENT=[<post-content>]"##);
+POST_CONTENT=[<post-content>]"##
+        );
     }
 
     #[test]
@@ -189,7 +216,9 @@ POSTED=[{{comment_posted}}]
             posted: false,
         };
         let res = post_renderer.render(&content, &comments);
-        assert_eq!(res, r##"
+        assert_eq!(
+            res,
+            r##"
 LINK=[my-post]
 COMMENTS_ENABLED=[true]
 COUNT=[1]
@@ -198,6 +227,7 @@ post
 
 CAPTCHA=[What is 1 + 2?]
 ERROR=[The captcha answer is incorrect. Please try again.]
-POSTED=[false]"##);
+POSTED=[false]"##
+        );
     }
 }

@@ -15,3 +15,5 @@ mod content_cache;
 pub mod logger;
 mod metrics;
 
+
+mod routes;

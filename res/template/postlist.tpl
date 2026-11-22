@@ -38,7 +38,7 @@
             {{number}}
           {{/current}}
           {{^current}}
-            <a href="?page={{number}}">{{number}}</a>
+            <a href="{{url}}">{{number}}</a>
           {{/current}}
         {{/page_list}}
         </div>
@@ -55,8 +55,8 @@
       <div class="card tag-list">
         <h3>List of tags</h3>
         <ul>
-          <li><a href="/list">all</a></li>
-          {{#tags}}<li><a href="/list/{{tag}}/">#{{tag}}</a></li>{{/tags}}
+          <li><a href="{{listing_url}}">all</a></li>
+          {{#tags}}<li><a href="{{url}}">#{{tag}}</a></li>{{/tags}}
         </ul>
       </div>
           </div>
