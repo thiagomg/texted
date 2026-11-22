@@ -1,0 +1,61 @@
+name: Build Linux
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: Fedora 32 and Ubuntu 26.04 x86_64
+    runs-on: ubuntu-26.04
+    timeout-minutes: 90
+    env:
+      RUST_TOOLCHAIN: stable
+      CARGO_TERM_COLOR: always
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - name: Test, build, and package for Fedora 32
+        run: |
+          docker build --platform linux/amd64 --tag texted-fedora32 --file .github/docker/fedora-32.Dockerfile .github/docker
+          mkdir -p dist
+          docker run --rm --platform linux/amd64 \
+            --volume "$GITHUB_WORKSPACE:/workspace:ro" \
+            --volume "$GITHUB_WORKSPACE/dist:/artifacts" \
+            --workdir /workspace \
+            --env RUST_TOOLCHAIN \
+            --env CARGO_TERM_COLOR \
+            --env CARGO_TARGET_DIR=/tmp/texted-target \
+            --env ARTIFACT_DIR=/artifacts \
+            texted-fedora32 \
+            bash .github/scripts/build-linux.sh fedora-32-x86_64
+
+      - name: Upload Fedora release binaries
+        uses: actions/upload-artifact@v7
+        with:
+          name: texted-fedora-32-x86_64
+          path: dist/*-fedora-32-x86_64.tar.gz
+          if-no-files-found: error
+          compression-level: 0
+
+      - name: Test, build, and package for Ubuntu 26.04
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes --no-install-recommends \
+            build-essential ca-certificates curl pkg-config libssl-dev
+          bash .github/scripts/build-linux.sh ubuntu-26.04-x86_64
+
+      - name: Upload Ubuntu release binaries
+        uses: actions/upload-artifact@v7
+        with:
+          name: texted-ubuntu-26.04-x86_64
+          path: dist/*-ubuntu-26.04-x86_64.tar.gz
+          if-no-files-found: error
+          compression-level: 0
