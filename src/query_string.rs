@@ -23,6 +23,10 @@ impl QueryString {
         if val == 0 { return 1; }
         val
     }
+
+    pub fn get(&self, key: &str) -> Option<&String> {
+        self.items.get(key)
+    }
 }
 
 #[cfg(test)]
@@ -65,5 +69,13 @@ mod tests {
         let buf = "key-only";
         let expected: HashMap<String, String> = vec![("key-only", "")].iter().map(|(x, y)| (x.to_string(), y.to_string())).collect::<HashMap<_, _>>();
         assert_eq!(QueryString::from(buf), QueryString { items: expected });
+    }
+
+    #[test]
+    fn test_get() {
+        let qs = QueryString::from("comment_error=captcha&comment_posted=1");
+        assert_eq!(qs.get("comment_error").map(|s| s.as_str()), Some("captcha"));
+        assert_eq!(qs.get("comment_posted").map(|s| s.as_str()), Some("1"));
+        assert!(qs.get("missing").is_none());
     }
 }

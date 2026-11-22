@@ -14,6 +14,11 @@ pub struct Paths {
     pub pages_dir: PathBuf,
 }
 
+#[derive(Deserialize, Clone)]
+pub struct Comments {
+    pub dir: PathBuf,
+}
+
 #[derive(Deserialize)]
 pub struct Personal {
     pub activity_start_year: i32,
@@ -76,6 +81,7 @@ pub struct Config {
     pub log: Option<Log>,
     pub metrics: Option<Metrics>,
     pub rss_feed: Option<RssFeed>,
+    pub comments: Option<Comments>,
 }
 
 fn parse_path(path: PathBuf) -> PathBuf {
@@ -107,6 +113,10 @@ pub fn read_config(cfg_path: &PathBuf) -> io::Result<Config> {
         posts_dir: parse_path(cfg.paths.posts_dir),
         pages_dir: parse_path(cfg.paths.pages_dir),
     };
+
+    if let Some(ref mut comments) = cfg.comments {
+        comments.dir = parse_path(comments.dir.clone());
+    }
 
     Ok(cfg)
 }

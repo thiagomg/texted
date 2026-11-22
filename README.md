@@ -146,6 +146,26 @@ tag.
 
 See `post_without_images.md` or `post_with_image/index.md` for an example
 
+### Comments
+
+Posts can accept comments. Each post has its own JSONL file (one JSON object per line) in the directory configured by `[comments]`.
+
+```toml
+[comments]
+dir = "res/comments"
+```
+
+Remove the `[comments]` block to disable comments.
+
+The file name matches the post URL. The post `/view/post_without_images/` is stored in `res/comments/post_without_images.jsonl`:
+
+```json
+{"id":"c0a1b2d3-e4f5-4678-9abc-def012345678","author":"Ada","date":"2024-03-01 10:15:00","body":"Clear explanation."}
+{"id":"d1b2c3d4-e5f6-4789-abcd-ef0123456789","author":"Lin","date":"2024-03-02 18:42:11","body":"Works well with git."}
+```
+
+The comment form includes a math captcha. You can style the comments section in `view.tpl` and `simple_flex.css`. The template fields are `comments_enabled`, `comments`, `comment_count`, `captcha_id`, `captcha_question`, `captcha_svg`, `comment_error` and `comment_posted`.
+
 ### Tip
 
 If you run the texted-post binary, it will create a post skeleton with header, title and sample body to you.
