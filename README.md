@@ -81,6 +81,22 @@ How to run?
 cargo run --bin texted
 ```
 
+### GitHub Actions builds
+
+The workflows in `.github/workflows/` build x86-64 release binaries for Fedora 32
+and Ubuntu 26.04 on pushes, pull requests, and manual runs. Both run the test suite
+with `Cargo.lock`, build `texted` and `texted-tool` using stable Rust, and check
+that the release binaries run and can bootstrap a site.
+
+Download the distribution-specific artifact from the workflow run's **Artifacts**
+section. Each `.tar.gz` contains both executables, sample resources, configuration,
+and documentation. Extract it and run `./texted`, or use `./texted-tool bootstrap`
+to create a separate site.
+
+Ubuntu uses the `ubuntu-26.04` runner. Fedora builds inside a `fedora:32` container
+using Fedora's archived repositories, with package signature verification enabled.
+GitHub checkout and upload actions run on the host outside that container.
+
 ## How to personalise my site?
 
 You can create your HTML templates using [mustache templates](https://mustache.github.io). The examples show all
